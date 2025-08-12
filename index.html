@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>School Games Platform</title>
+    <title>St Marys Edenderry Games Platform</title>
     <link rel="stylesheet" href="styles/main.css">
 </head>
 <body>
@@ -50,6 +50,12 @@
                         <div class="game-title">Stop the Sprite</div>
                         <div class="game-description">Perfect timing challenge</div>
                     </div>
+
+                    <div class="game-card" data-game="wirebuzzer">
+                        <span class="game-icon">⚡</span>
+                        <div class="game-title">Wire Buzzer</div>
+                        <div class="game-description">Navigate without touching!</div>
+                    </div>
                 </div>
 
                 <div class="sidebar">
@@ -77,6 +83,9 @@
                         <div class="control-item">
                             <strong>Stop Sprite:</strong> Spacebar
                         </div>
+                        <div class="control-item">
+                            <strong>Wire Buzzer:</strong> Mouse/Touch drag
+                        </div>
                     </div>
                 </div>
             </div>
@@ -95,20 +104,40 @@
         </div>
     </div>
 
-    <!-- Core JavaScript -->
-    <script src="js/platform.js"></script>
-    
-    <!-- Game Classes -->
+    <!-- Load game files in order - games first, then platform -->
     <script src="js/games/pong.js"></script>
     <script src="js/games/snake.js"></script>
     <script src="js/games/flappybird.js"></script>
     <script src="js/games/rhythm-timer.js"></script>
     <script src="js/games/stop-sprite.js"></script>
+    <script src="js/games/wire-buzzer.js"></script>
     
-    <!-- Initialize -->
+    <!-- Platform logic last -->
+    <script src="js/platform.js"></script>
+    
+    <!-- Initialize after everything is loaded -->
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            window.gamesPlatform = new GamesPlatform();
+            console.log('DOM loaded, initializing platform...');
+            
+            // Check if all game classes are available
+            const gameClasses = {
+                'pong': typeof PongGame !== 'undefined',
+                'snake': typeof SnakeGame !== 'undefined', 
+                'flappybird': typeof FlappyBirdGame !== 'undefined',
+                'rhythmtimer': typeof RhythmTimerGame !== 'undefined',
+                'stopthesprite': typeof StopTheSpriteGame !== 'undefined'
+            };
+            
+            console.log('Game classes loaded:', gameClasses);
+            
+            // Check if platform class is available
+            if (typeof GamesPlatform !== 'undefined') {
+                console.log('GamesPlatform class found, initializing...');
+                window.gamesPlatform = new GamesPlatform();
+            } else {
+                console.error('GamesPlatform class not found!');
+            }
         });
     </script>
 </body>
