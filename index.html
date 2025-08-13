@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>St Marys Edenderry Games Platform</title>
+    <title>St Mary's Edenderry Games Platform</title>
     <link rel="stylesheet" href="styles/main.css">
 </head>
 <body>
@@ -15,7 +15,7 @@
         <!-- Main Menu -->
         <div id="mainMenu" class="main-screen">
             <div class="header">
-                <h1>🎮 School Games Platform</h1>
+                <h1>🎮 St Mary's Edenderry Games Platform</h1>
                 <p>Choose a game to play and compete for high scores!</p>
             </div>
 
@@ -51,10 +51,22 @@
                         <div class="game-description">Perfect timing challenge</div>
                     </div>
 
+                    <div class="game-card" data-game="streamstop">
+                        <span class="game-icon">≋</span>
+                        <div class="game-title">Stream Stop</div>
+                        <div class="game-description">Stop the stream at the right moment!</div>
+                    </div>
+
                     <div class="game-card" data-game="wirebuzzer">
                         <span class="game-icon">⚡</span>
                         <div class="game-title">Wire Buzzer</div>
                         <div class="game-description">Navigate without touching!</div>
+                    </div>
+
+                    <div class="game-card" data-game="bikerbeat">
+                        <span class="game-icon">🚴‍♂️</span>
+                        <div class="game-title">Biker Beat</div>
+                        <div class="game-description">Pedal through amazing worlds!</div>
                     </div>
                 </div>
 
@@ -86,6 +98,9 @@
                         <div class="control-item">
                             <strong>Wire Buzzer:</strong> Mouse/Touch drag
                         </div>
+                        <div class="control-item">
+                            <strong>Biker Beat:</strong> Pedal bike (reed switch)
+                        </div>
                     </div>
                 </div>
             </div>
@@ -111,6 +126,7 @@
     <script src="js/games/rhythm-timer.js"></script>
     <script src="js/games/stop-sprite.js"></script>
     <script src="js/games/wire-buzzer.js"></script>
+    <script src="js/games/biker-beat.js"></script>
     
     <!-- Platform logic last -->
     <script src="js/platform.js"></script>
@@ -126,7 +142,9 @@
                 'snake': typeof SnakeGame !== 'undefined', 
                 'flappybird': typeof FlappyBirdGame !== 'undefined',
                 'rhythmtimer': typeof RhythmTimerGame !== 'undefined',
-                'stopthesprite': typeof StopTheSpriteGame !== 'undefined'
+                'stopthesprite': typeof StopTheSpriteGame !== 'undefined',
+                'wirebuzzer': typeof WireBuzzerGame !== 'undefined',
+                'bikerbeat': typeof BikerBeatGame !== 'undefined'
             };
             
             console.log('Game classes loaded:', gameClasses);

@@ -27,8 +27,7 @@ function createWindow() {
     mainWindow.show();
   });
 
-  // Optional: Open DevTools in development
-  // mainWindow.webContents.openDevTools();
+  mainWindow.webContents.openDevTools();
 }
 
 // High scores management
