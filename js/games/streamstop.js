@@ -1,4 +1,4 @@
-// js/games/streamstop.js - Stream Stop Game Implementation
+// js/games/streamstop.js - Stream Stop Game Implementation (Fixed)
 
 class StreamStopGame {
     constructor(canvas, ctx, platform) {
@@ -15,7 +15,16 @@ class StreamStopGame {
         this.streamWidth = this.canvas.width / this.numStreams;
         this.spriteSize = 25 * Math.min(this.scaleX, this.scaleY);
         this.spriteSpeed = 2 * this.scaleY;
-        this.spawnRate = 0.02; // Probability per frame per stream
+        
+        // MUCH lower spawn rate - starts very low and gradually increases
+        this.baseSpawnRate = 0.003; // Very low starting spawn rate
+        this.maxSpawnRate = 0.008; // Maximum spawn rate (still much lower than before)
+        this.spawnRateIncrease = 0.0001; // Gradual increase per second
+        this.currentSpawnRate = this.baseSpawnRate;
+        
+        // Minimum time between spawns in the same stream
+        this.minSpawnInterval = 2000; // 2 seconds minimum between sprites in same stream
+        this.streamLastSpawn = [0, 0, 0, 0]; // Track last spawn time for each stream
         
         // Target zones (where sprites should be stopped)
         this.targetY = this.canvas.height * 0.8;
@@ -105,11 +114,15 @@ class StreamStopGame {
         this.combo = 0;
         this.totalHits = 0;
         this.totalMisses = 0;
+        this.currentSpawnRate = this.baseSpawnRate;
         
         // Clear all streams
         this.streams.forEach(stream => {
             stream.sprites = [];
         });
+        
+        // Reset spawn timers
+        this.streamLastSpawn = [0, 0, 0, 0];
     }
     
     stopSprite(streamIndex) {
@@ -263,14 +276,27 @@ class StreamStopGame {
                 return;
             }
             
-            // Spawn new sprites
-            this.streams.forEach(stream => {
-                if (Math.random() < this.spawnRate) {
+            // Gradually increase spawn rate over time
+            const timeProgress = this.gameTime / this.gameDuration;
+            this.currentSpawnRate = this.baseSpawnRate + (this.maxSpawnRate - this.baseSpawnRate) * timeProgress;
+            
+            // Spawn new sprites with improved logic
+            const currentTime = Date.now();
+            this.streams.forEach((stream, index) => {
+                // Check if enough time has passed since last spawn in this stream
+                const timeSinceLastSpawn = currentTime - this.streamLastSpawn[index];
+                
+                if (timeSinceLastSpawn >= this.minSpawnInterval && 
+                    Math.random() < this.currentSpawnRate && 
+                    stream.sprites.length < 2) { // Limit max sprites per stream
+                    
                     stream.sprites.push({
                         y: -this.spriteSize,
                         color: this.getRandomSpriteColor(),
                         id: Date.now() + Math.random()
                     });
+                    
+                    this.streamLastSpawn[index] = currentTime;
                 }
             });
             
@@ -283,7 +309,8 @@ class StreamStopGame {
                     // Remove sprites that have gone off screen
                     if (sprite.y > this.canvas.height + this.spriteSize) {
                         stream.sprites.splice(i, 1);
-                        // Could add miss penalty here if desired
+                        // Small penalty for letting sprites pass
+                        this.combo = Math.max(0, this.combo - 1);
                     }
                 }
             });
@@ -351,11 +378,12 @@ class StreamStopGame {
             
             this.ctx.fillStyle = '#fff';
             this.ctx.font = `${Math.max(16, 20 * this.scaleY)}px Arial`;
-            this.ctx.fillText('60 seconds - Build combos for multipliers!', this.canvas.width / 2, this.canvas.height / 2 + 30 * this.scaleY);
+            this.ctx.fillText('Fewer sprites = More strategic timing!', this.canvas.width / 2, this.canvas.height / 2 + 30 * this.scaleY);
+            this.ctx.fillText('Build combos for score multipliers!', this.canvas.width / 2, this.canvas.height / 2 + 50 * this.scaleY);
             
             this.ctx.fillStyle = '#ffff00';
             this.ctx.font = `bold ${Math.max(18, 24 * this.scaleY)}px Arial`;
-            this.ctx.fillText('Press SPACEBAR to start', this.canvas.width / 2, this.canvas.height / 2 + 70 * this.scaleY);
+            this.ctx.fillText('Press SPACEBAR to start', this.canvas.width / 2, this.canvas.height / 2 + 90 * this.scaleY);
             
             // Draw sample target zone
             this.drawTargetZones();
@@ -430,6 +458,10 @@ class StreamStopGame {
         this.ctx.fillText(`Time: ${timeLeft.toFixed(1)}s`, margin, this.canvas.height - 80 * this.scaleY);
         this.ctx.fillText(`Score: ${this.score}`, margin, this.canvas.height - 55 * this.scaleY);
         this.ctx.fillText(`Combo: ${this.combo}`, margin, this.canvas.height - 30 * this.scaleY);
+        
+        // Difficulty indicator
+        const difficultyPercent = ((this.currentSpawnRate - this.baseSpawnRate) / (this.maxSpawnRate - this.baseSpawnRate) * 100).toFixed(0);
+        this.ctx.fillText(`Difficulty: ${difficultyPercent}%`, margin, this.canvas.height - 105 * this.scaleY);
         
         // Accuracy stats
         const accuracy = this.totalHits + this.totalMisses > 0 ? 
