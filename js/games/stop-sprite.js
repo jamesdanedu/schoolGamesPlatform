@@ -10,45 +10,42 @@ class StopTheSpriteGame {
         this.scaleX = canvas.width / 800;
         this.scaleY = canvas.height / 600;
         
-        // Game properties
+        // Sprite properties
+        this.baseSpeed = 3 * this.scaleX;
+        this.maxSpeed = 8 * this.scaleX;
         this.sprite = {
             x: 0,
             y: this.canvas.height / 2,
-            size: 20 * Math.min(this.scaleX, this.scaleY),
-            speed: 2 * this.scaleX,
+            size: 15 * Math.min(this.scaleX, this.scaleY),
+            speed: this.baseSpeed,
             direction: 1
         };
         
-        // Target zone
-        this.targetZone = {
-            x: this.canvas.width / 2 - 50 * this.scaleX,
-            y: this.canvas.height / 2 - 30 * this.scaleY,
-            width: 100 * this.scaleX,
-            height: 60 * this.scaleY
-        };
+        // Target strip properties
+        this.baseStripWidth = 120 * this.scaleX; // Starting width
+        this.minStripWidth = 40 * this.scaleX;   // Minimum width
+        this.stripHeight = 80 * this.scaleY;
+        this.stripX = this.canvas.width / 2 - this.baseStripWidth / 2;
+        this.stripY = this.canvas.height / 2 - this.stripHeight / 2;
+        this.currentStripWidth = this.baseStripWidth;
         
         // Game state
-        this.score = 0;
-        this.round = 1;
-        this.maxRounds = 10;
+        this.attempt = 1;
+        this.maxAttempts = 5;
+        this.scores = []; // Store individual attempt scores
         this.running = true;
         this.gameStarted = false;
-        this.roundActive = false;
-        this.roundStartTime = 0;
+        this.spriteMoving = false;
+        this.attemptComplete = false;
         
-        // Difficulty progression
-        this.baseSpeed = 2 * this.scaleX;
-        this.speedMultiplier = 1;
-        
-        // Controls
-        this.spacePressed = false;
-        
-        // Visual effects
-        this.particles = [];
+        // Feedback
         this.showFeedback = false;
         this.feedbackText = '';
         this.feedbackColor = '#fff';
         this.feedbackTimer = 0;
+        
+        // Controls
+        this.spacePressed = false;
         
         this.gameLoop = this.gameLoop.bind(this);
         this.gameLoop();
@@ -61,10 +58,10 @@ class StopTheSpriteGame {
             if (!this.spacePressed) {
                 if (!this.gameStarted) {
                     this.startGame();
-                } else if (this.roundActive) {
+                } else if (this.spriteMoving) {
                     this.stopSprite();
-                } else {
-                    this.startRound();
+                } else if (this.attemptComplete && this.attempt <= this.maxAttempts) {
+                    this.startNextAttempt();
                 }
                 this.spacePressed = true;
             }
@@ -79,147 +76,138 @@ class StopTheSpriteGame {
 
     startGame() {
         this.gameStarted = true;
-        this.startRound();
+        this.startNextAttempt();
     }
 
-    startRound() {
-        if (this.round > this.maxRounds) {
+    startNextAttempt() {
+        if (this.attempt > this.maxAttempts) {
             this.gameOver();
             return;
         }
         
-        // Reset sprite position
+        // Reset sprite to starting position
         this.sprite.x = 0;
-        this.sprite.y = this.canvas.height / 2;
         this.sprite.direction = 1;
         
-        // Increase difficulty
-        this.speedMultiplier = 1 + (this.round - 1) * 0.3;
-        this.sprite.speed = this.baseSpeed * this.speedMultiplier;
+        // Update strip width based on previous performance
+        this.updateStripWidth();
         
-        // Add some randomness to sprite path
-        this.sprite.y = this.canvas.height * (0.3 + Math.random() * 0.4);
-        
-        this.roundActive = true;
-        this.roundStartTime = Date.now();
+        // Start sprite movement
+        this.spriteMoving = true;
+        this.attemptComplete = false;
         this.showFeedback = false;
     }
 
+    updateStripWidth() {
+        if (this.scores.length === 0) {
+            this.currentStripWidth = this.baseStripWidth;
+            this.sprite.speed = this.baseSpeed;
+            return;
+        }
+        
+        // Calculate average score so far
+        const averageScore = this.scores.reduce((sum, score) => sum + score, 0) / this.scores.length;
+        
+        // Narrow the strip AND increase speed based on performance
+        let widthReduction = 0;
+        let speedMultiplier = 1;
+        
+        if (averageScore >= 90) {
+            widthReduction = 0.7; // Very narrow
+            speedMultiplier = 2.2; // Much faster
+        } else if (averageScore >= 80) {
+            widthReduction = 0.5; // Narrow
+            speedMultiplier = 1.8; // Faster
+        } else if (averageScore >= 70) {
+            widthReduction = 0.3; // Slightly narrow
+            speedMultiplier = 1.5; // Moderately faster
+        } else if (averageScore >= 60) {
+            widthReduction = 0.15; // A bit narrow
+            speedMultiplier = 1.2; // Slightly faster
+        }
+        // else no reduction for scores < 60%
+        
+        this.currentStripWidth = Math.max(
+            this.minStripWidth,
+            this.baseStripWidth * (1 - widthReduction)
+        );
+        
+        // Update sprite speed
+        this.sprite.speed = Math.min(this.maxSpeed, this.baseSpeed * speedMultiplier);
+        
+        // Center the strip
+        this.stripX = this.canvas.width / 2 - this.currentStripWidth / 2;
+    }
+
     stopSprite() {
-        if (!this.roundActive) return;
+        if (!this.spriteMoving) return;
         
-        this.roundActive = false;
+        this.spriteMoving = false;
+        this.attemptComplete = true;
         
-        // Check if sprite is in target zone
-        const spriteInZone = this.sprite.x >= this.targetZone.x &&
-                           this.sprite.x <= this.targetZone.x + this.targetZone.width &&
-                           this.sprite.y >= this.targetZone.y &&
-                           this.sprite.y <= this.targetZone.y + this.targetZone.height;
+        // Calculate score based on accuracy
+        const stripCenter = this.stripX + this.currentStripWidth / 2;
+        const distanceFromCenter = Math.abs(this.sprite.x - stripCenter);
+        const maxDistance = this.currentStripWidth / 2;
         
-        if (spriteInZone) {
-            // Perfect stop!
-            const centerX = this.targetZone.x + this.targetZone.width / 2;
-            const centerY = this.targetZone.y + this.targetZone.height / 2;
-            const distance = Math.sqrt(
-                Math.pow(this.sprite.x - centerX, 2) + 
-                Math.pow(this.sprite.y - centerY, 2)
-            );
-            
-            // Score based on accuracy (closer to center = more points)
-            const maxDistance = Math.sqrt(
-                Math.pow(this.targetZone.width / 2, 2) + 
-                Math.pow(this.targetZone.height / 2, 2)
-            );
-            const accuracy = 1 - (distance / maxDistance);
-            const points = Math.floor(accuracy * 100 * this.round);
-            
-            this.score += points;
-            this.platform.updateScore(this.score);
-            
-            this.feedbackText = `Great! +${points} points`;
+        let score = 0;
+        if (distanceFromCenter <= maxDistance) {
+            // Sprite is within the strip
+            const accuracy = 1 - (distanceFromCenter / maxDistance);
+            score = Math.round(accuracy * 100);
+        }
+        
+        this.scores.push(score);
+        
+        // Update platform score with current average
+        const currentAverage = Math.round(this.scores.reduce((sum, s) => sum + s, 0) / this.scores.length);
+        this.platform.updateScore(currentAverage);
+        
+        // Show feedback
+        if (score === 100) {
+            this.feedbackText = 'PERFECT! 100%';
             this.feedbackColor = '#00ff00';
-            this.addSuccessParticles();
-            
+        } else if (score >= 90) {
+            this.feedbackText = `Excellent! ${score}%`;
+            this.feedbackColor = '#00ff00';
+        } else if (score >= 70) {
+            this.feedbackText = `Good! ${score}%`;
+            this.feedbackColor = '#ffff00';
+        } else if (score >= 50) {
+            this.feedbackText = `OK! ${score}%`;
+            this.feedbackColor = '#ff8800';
+        } else if (score > 0) {
+            this.feedbackText = `Close! ${score}%`;
+            this.feedbackColor = '#ff4400';
         } else {
-            // Missed the target
-            this.feedbackText = 'Missed the target!';
+            this.feedbackText = 'Missed! 0%';
             this.feedbackColor = '#ff0000';
-            this.addMissParticles();
         }
         
         this.showFeedback = true;
-        this.feedbackTimer = 120; // frames to show feedback
+        this.feedbackTimer = 180; // 3 seconds at 60fps
         
-        // Advance to next round after delay
-        setTimeout(() => {
-            this.round++;
-            if (this.round <= this.maxRounds) {
-                this.startRound();
-            } else {
-                this.gameOver();
-            }
-        }, 2000);
-    }
-
-    addSuccessParticles() {
-        for (let i = 0; i < 15; i++) {
-            this.particles.push({
-                x: this.sprite.x,
-                y: this.sprite.y,
-                vx: (Math.random() - 0.5) * 12,
-                vy: (Math.random() - 0.5) * 12,
-                life: 1.0,
-                decay: 0.02,
-                color: '#00ff00',
-                size: Math.random() * 4 + 2
-            });
-        }
-    }
-
-    addMissParticles() {
-        for (let i = 0; i < 8; i++) {
-            this.particles.push({
-                x: this.sprite.x,
-                y: this.sprite.y,
-                vx: (Math.random() - 0.5) * 8,
-                vy: (Math.random() - 0.5) * 8,
-                life: 1.0,
-                decay: 0.03,
-                color: '#ff0000',
-                size: Math.random() * 3 + 1
-            });
+        // Advance to next attempt
+        this.attempt++;
+        
+        // Auto-advance after showing feedback
+        if (this.attempt > this.maxAttempts) {
+            setTimeout(() => this.gameOver(), 3000);
         }
     }
 
     update() {
         if (!this.running) return;
         
-        if (this.roundActive) {
-            // Move sprite
+        // Move sprite continuously
+        if (this.spriteMoving) {
             this.sprite.x += this.sprite.speed * this.sprite.direction;
             
             // Bounce off walls
-            if (this.sprite.x <= 0 || this.sprite.x >= this.canvas.width) {
+            if (this.sprite.x <= this.sprite.size || this.sprite.x >= this.canvas.width - this.sprite.size) {
                 this.sprite.direction *= -1;
-                this.sprite.x = Math.max(0, Math.min(this.canvas.width, this.sprite.x));
-            }
-            
-            // Add slight vertical movement for more challenge
-            const timeSinceStart = Date.now() - this.roundStartTime;
-            this.sprite.y += Math.sin(timeSinceStart * 0.003) * 0.5 * this.scaleY;
-        }
-        
-        // Update particles
-        for (let i = this.particles.length - 1; i >= 0; i--) {
-            const particle = this.particles[i];
-            particle.x += particle.vx;
-            particle.y += particle.vy;
-            particle.life -= particle.decay;
-            particle.vx *= 0.98; // slight friction
-            particle.vy *= 0.98;
-            
-            if (particle.life <= 0) {
-                this.particles.splice(i, 1);
+                this.sprite.x = Math.max(this.sprite.size, 
+                    Math.min(this.canvas.width - this.sprite.size, this.sprite.x));
             }
         }
         
@@ -234,9 +222,9 @@ class StopTheSpriteGame {
 
     draw() {
         // Background gradient
-        const gradient = this.ctx.createLinearGradient(0, 0, this.canvas.width, this.canvas.height);
-        gradient.addColorStop(0, '#2c1810');
-        gradient.addColorStop(1, '#1a0e08');
+        const gradient = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height);
+        gradient.addColorStop(0, '#1a1a2e');
+        gradient.addColorStop(1, '#16213e');
         this.ctx.fillStyle = gradient;
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         
@@ -245,111 +233,157 @@ class StopTheSpriteGame {
             this.ctx.fillStyle = '#fff';
             this.ctx.font = `bold ${Math.max(32, 48 * this.scaleY)}px Arial`;
             this.ctx.textAlign = 'center';
-            this.ctx.fillText('Stop the Sprite', this.canvas.width / 2, this.canvas.height / 2 - 50 * this.scaleY);
+            this.ctx.fillText('Stop the Sprite', this.canvas.width / 2, this.canvas.height / 2 - 80 * this.scaleY);
             
             this.ctx.font = `${Math.max(16, 20 * this.scaleY)}px Arial`;
-            this.ctx.fillText('Press SPACEBAR to stop the moving sprite', this.canvas.width / 2, this.canvas.height / 2);
-            this.ctx.fillText('in the target zone for points!', this.canvas.width / 2, this.canvas.height / 2 + 25 * this.scaleY);
-            this.ctx.fillText('Closer to center = more points', this.canvas.width / 2, this.canvas.height / 2 + 50 * this.scaleY);
+            this.ctx.fillText('Stop the moving sprite in the target strip', this.canvas.width / 2, this.canvas.height / 2 - 20 * this.scaleY);
+            this.ctx.fillText('100% for perfect center, lower for edges', this.canvas.width / 2, this.canvas.height / 2 + 10 * this.scaleY);
+            this.ctx.fillText('5 attempts total - strip narrows & speed increases with good scores', this.canvas.width / 2, this.canvas.height / 2 + 40 * this.scaleY);
+            
+            this.ctx.fillStyle = '#ffff00';
+            this.ctx.font = `bold ${Math.max(18, 24 * this.scaleY)}px Arial`;
             this.ctx.fillText('Press SPACEBAR to start', this.canvas.width / 2, this.canvas.height / 2 + 80 * this.scaleY);
+            
+            // Show sample strip
+            this.ctx.strokeStyle = '#ffff00';
+            this.ctx.lineWidth = 3;
+            this.ctx.strokeRect(this.stripX, this.stripY, this.currentStripWidth, this.stripHeight);
+            this.ctx.fillStyle = 'rgba(255, 255, 0, 0.2)';
+            this.ctx.fillRect(this.stripX, this.stripY, this.currentStripWidth, this.stripHeight);
+            
             return;
         }
         
-        // Draw target zone
+        // Draw target strip
         this.ctx.strokeStyle = '#ffff00';
         this.ctx.lineWidth = 3;
-        this.ctx.setLineDash([10, 5]);
-        this.ctx.strokeRect(this.targetZone.x, this.targetZone.y, this.targetZone.width, this.targetZone.height);
+        this.ctx.strokeRect(this.stripX, this.stripY, this.currentStripWidth, this.stripHeight);
+        
+        // Fill strip with semi-transparent color
+        this.ctx.fillStyle = 'rgba(255, 255, 0, 0.2)';
+        this.ctx.fillRect(this.stripX, this.stripY, this.currentStripWidth, this.stripHeight);
+        
+        // Draw center line
+        const centerX = this.stripX + this.currentStripWidth / 2;
+        this.ctx.strokeStyle = '#ffff00';
+        this.ctx.lineWidth = 2;
+        this.ctx.setLineDash([5, 5]);
+        this.ctx.beginPath();
+        this.ctx.moveTo(centerX, this.stripY);
+        this.ctx.lineTo(centerX, this.stripY + this.stripHeight);
+        this.ctx.stroke();
         this.ctx.setLineDash([]);
         
-        // Fill target zone with semi-transparent color
-        this.ctx.fillStyle = 'rgba(255, 255, 0, 0.2)';
-        this.ctx.fillRect(this.targetZone.x, this.targetZone.y, this.targetZone.width, this.targetZone.height);
-        
-        // Draw target zone center indicator
-        const centerX = this.targetZone.x + this.targetZone.width / 2;
-        const centerY = this.targetZone.y + this.targetZone.height / 2;
-        this.ctx.fillStyle = '#ffff00';
-        this.ctx.beginPath();
-        this.ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
-        this.ctx.fill();
-        
         // Draw sprite
-        if (this.roundActive || this.showFeedback) {
-            this.ctx.fillStyle = this.roundActive ? '#00ffff' : '#888888';
+        if (this.spriteMoving || this.attemptComplete) {
+            // Sprite color changes when stopped
+            this.ctx.fillStyle = this.spriteMoving ? '#00ffff' : '#ff00ff';
             this.ctx.beginPath();
             this.ctx.arc(this.sprite.x, this.sprite.y, this.sprite.size, 0, Math.PI * 2);
             this.ctx.fill();
             
-            // Sprite trail effect when moving
-            if (this.roundActive) {
-                this.ctx.fillStyle = 'rgba(0, 255, 255, 0.3)';
-                this.ctx.beginPath();
-                this.ctx.arc(this.sprite.x - this.sprite.direction * 10, this.sprite.y, this.sprite.size * 0.7, 0, Math.PI * 2);
-                this.ctx.fill();
+            // Sprite outline
+            this.ctx.strokeStyle = '#ffffff';
+            this.ctx.lineWidth = 2;
+            this.ctx.stroke();
+            
+            // Movement trail when moving
+            if (this.spriteMoving) {
+                for (let i = 1; i <= 3; i++) {
+                    const trailX = this.sprite.x - (this.sprite.direction * i * 8);
+                    const alpha = (4 - i) / 4;
+                    this.ctx.fillStyle = `rgba(0, 255, 255, ${alpha * 0.5})`;
+                    this.ctx.beginPath();
+                    this.ctx.arc(trailX, this.sprite.y, this.sprite.size * (1 - i * 0.1), 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
             }
         }
         
-        // Draw particles
-        this.particles.forEach(particle => {
-            this.ctx.fillStyle = particle.color + Math.floor(particle.life * 255).toString(16).padStart(2, '0');
-            this.ctx.beginPath();
-            this.ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
-            this.ctx.fill();
-        });
-        
         // Draw UI
         this.ctx.fillStyle = '#fff';
-        this.ctx.font = `${Math.max(16, 20 * this.scaleY)}px Arial`;
+        this.ctx.font = `${Math.max(18, 22 * this.scaleY)}px Arial`;
         this.ctx.textAlign = 'left';
-        this.ctx.fillText(`Score: ${this.score}`, 20, 30);
-        this.ctx.fillText(`Round: ${this.round}/${this.maxRounds}`, 20, 55);
-        this.ctx.fillText(`Speed: ${this.speedMultiplier.toFixed(1)}x`, 20, 80);
+        
+        const margin = 20 * this.scaleX;
+        this.ctx.fillText(`Attempt: ${Math.min(this.attempt, this.maxAttempts)}/${this.maxAttempts}`, margin, 30 * this.scaleY);
+        
+        // Show individual scores
+        if (this.scores.length > 0) {
+            this.ctx.fillText(`Scores: ${this.scores.join(', ')}`, margin, 55 * this.scaleY);
+            const average = Math.round(this.scores.reduce((sum, s) => sum + s, 0) / this.scores.length);
+            this.ctx.fillText(`Average: ${average}%`, margin, 80 * this.scaleY);
+        }
+        
+        // Strip width indicator
+        const stripWidthPercent = Math.round((this.currentStripWidth / this.baseStripWidth) * 100);
+        const speedMultiplier = (this.sprite.speed / this.baseSpeed).toFixed(1);
+        this.ctx.fillText(`Strip Width: ${stripWidthPercent}%`, margin, 105 * this.scaleY);
+        this.ctx.fillText(`Speed: ${speedMultiplier}x`, margin, 130 * this.scaleY);
         
         // Instructions
-        if (this.roundActive) {
-            this.ctx.textAlign = 'center';
+        this.ctx.textAlign = 'center';
+        if (this.spriteMoving) {
             this.ctx.fillStyle = '#ffff00';
-            this.ctx.font = `${Math.max(18, 22 * this.scaleY)}px Arial`;
-            this.ctx.fillText('Press SPACEBAR to stop the sprite in the target!', this.canvas.width / 2, this.canvas.height - 30);
-        } else if (!this.showFeedback && this.round <= this.maxRounds) {
-            this.ctx.textAlign = 'center';
+            this.ctx.font = `bold ${Math.max(20, 26 * this.scaleY)}px Arial`;
+            this.ctx.fillText('Press SPACEBAR to STOP!', this.canvas.width / 2, this.canvas.height - 40 * this.scaleY);
+        } else if (this.attemptComplete && this.attempt <= this.maxAttempts) {
             this.ctx.fillStyle = '#ffffff';
             this.ctx.font = `${Math.max(18, 22 * this.scaleY)}px Arial`;
-            this.ctx.fillText('Press SPACEBAR for next round', this.canvas.width / 2, this.canvas.height - 30);
+            this.ctx.fillText('Press SPACEBAR for next attempt', this.canvas.width / 2, this.canvas.height - 40 * this.scaleY);
         }
         
         // Feedback text
         if (this.showFeedback) {
             this.ctx.fillStyle = this.feedbackColor;
-            this.ctx.font = `bold ${Math.max(24, 32 * this.scaleY)}px Arial`;
+            this.ctx.font = `bold ${Math.max(32, 42 * this.scaleY)}px Arial`;
             this.ctx.textAlign = 'center';
-            this.ctx.fillText(this.feedbackText, this.canvas.width / 2, this.canvas.height / 2 + 100 * this.scaleY);
+            
+            // Add text shadow for better visibility
+            this.ctx.strokeStyle = '#000';
+            this.ctx.lineWidth = 3;
+            this.ctx.strokeText(this.feedbackText, this.canvas.width / 2, this.canvas.height / 2 + 150 * this.scaleY);
+            this.ctx.fillText(this.feedbackText, this.canvas.width / 2, this.canvas.height / 2 + 150 * this.scaleY);
         }
         
+        // Game over screen
         if (!this.running) {
-            // Game over screen
             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
             
             this.ctx.fillStyle = '#fff';
-            this.ctx.font = `bold ${Math.max(32, 48 * this.scaleY)}px Arial`;
+            this.ctx.font = `bold ${Math.max(36, 48 * this.scaleY)}px Arial`;
             this.ctx.textAlign = 'center';
-            this.ctx.fillText('Game Complete!', this.canvas.width / 2, this.canvas.height / 2 - 30 * this.scaleY);
+            this.ctx.fillText('Game Complete!', this.canvas.width / 2, this.canvas.height / 2 - 80 * this.scaleY);
             
-            this.ctx.font = `${Math.max(20, 24 * this.scaleY)}px Arial`;
-            this.ctx.fillText(`Final Score: ${this.score}`, this.canvas.width / 2, this.canvas.height / 2 + 20 * this.scaleY);
+            this.ctx.font = `${Math.max(20, 26 * this.scaleY)}px Arial`;
+            this.ctx.fillText(`Individual Scores: ${this.scores.join(', ')}`, this.canvas.width / 2, this.canvas.height / 2 - 30 * this.scaleY);
             
-            const averageScore = Math.floor(this.score / this.maxRounds);
-            this.ctx.fillText(`Average per Round: ${averageScore}`, this.canvas.width / 2, this.canvas.height / 2 + 50 * this.scaleY);
+            const finalAverage = Math.round(this.scores.reduce((sum, s) => sum + s, 0) / this.scores.length);
+            this.ctx.fillStyle = '#ffff00';
+            this.ctx.font = `bold ${Math.max(24, 32 * this.scaleY)}px Arial`;
+            this.ctx.fillText(`Final Average: ${finalAverage}%`, this.canvas.width / 2, this.canvas.height / 2 + 10 * this.scaleY);
+            
+            // Performance message
+            let message = '';
+            if (finalAverage >= 90) message = 'Outstanding precision!';
+            else if (finalAverage >= 80) message = 'Excellent accuracy!';
+            else if (finalAverage >= 70) message = 'Good job!';
+            else if (finalAverage >= 60) message = 'Not bad!';
+            else message = 'Keep practicing!';
+            
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = `${Math.max(18, 22 * this.scaleY)}px Arial`;
+            this.ctx.fillText(message, this.canvas.width / 2, this.canvas.height / 2 + 50 * this.scaleY);
         }
     }
 
     gameOver() {
         this.running = false;
+        const finalAverage = Math.round(this.scores.reduce((sum, s) => sum + s, 0) / this.scores.length);
         setTimeout(() => {
-            this.platform.gameOver(this.score);
-        }, 3000);
+            this.platform.gameOver(finalAverage);
+        }, 4000);
     }
 
     gameLoop() {

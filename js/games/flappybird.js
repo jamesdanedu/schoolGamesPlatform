@@ -1,4 +1,4 @@
-// js/games/flappybird.js - Flappy Bird Game Implementation
+// js/games/flappybird.js - Flappy Bird Game Implementation with Progressive Difficulty
 
 class FlappyBirdGame {
     constructor(canvas, ctx, platform) {
@@ -18,10 +18,20 @@ class FlappyBirdGame {
         this.gravity = 0.5 * this.scaleY;
         this.jumpStrength = -8 * this.scaleY;
         
+        // Progressive difficulty system
+        this.basePipeSpeed = 1.5 * this.scaleX; // Slower starting speed
+        this.speedIncrement = 0.3; // Speed multiplier increase per level
+        this.pipesPerLevel = 5; // Pipes needed to increase difficulty
+        this.currentLevel = 0;
+        this.pipesCleared = 0;
+        
+        // Progressive gap system
+        this.basePipeGap = 220 * this.scaleY; // Much larger starting gap
+        this.minPipeGap = 140 * this.scaleY; // Minimum gap at higher levels
+        this.gapReductionPerLevel = 8 * this.scaleY; // Gap reduction per level
+        
         // Pipe properties
         this.pipeWidth = 60 * this.scaleX;
-        this.pipeGap = 150 * this.scaleY;
-        this.pipeSpeed = 3 * this.scaleX;
         this.pipes = [];
         this.pipeSpawnTimer = 0;
         this.pipeSpawnDelay = 90; // frames between pipes
@@ -37,6 +47,27 @@ class FlappyBirdGame {
         
         this.gameLoop = this.gameLoop.bind(this);
         this.gameLoop();
+    }
+
+    // Calculate current pipe gap based on level
+    getCurrentPipeGap() {
+        const gapReduction = this.currentLevel * this.gapReductionPerLevel;
+        return Math.max(this.minPipeGap, this.basePipeGap - gapReduction);
+    }
+
+    // Calculate current pipe speed based on level
+    getCurrentPipeSpeed() {
+        return this.basePipeSpeed * (1 + this.currentLevel * this.speedIncrement);
+    }
+
+    // Calculate current speed multiplier for display
+    getCurrentSpeedMultiplier() {
+        return (1 + this.currentLevel * this.speedIncrement).toFixed(1);
+    }
+
+    // Get pipes remaining until next speed increase
+    getPipesUntilNextLevel() {
+        return this.pipesPerLevel - (this.pipesCleared % this.pipesPerLevel);
     }
 
     handleKeyDown(e) {
@@ -69,14 +100,15 @@ class FlappyBirdGame {
     }
 
     generatePipe() {
+        const currentGap = this.getCurrentPipeGap();
         const minHeight = 50 * this.scaleY;
-        const maxHeight = this.canvas.height - this.pipeGap - minHeight;
+        const maxHeight = this.canvas.height - currentGap - minHeight;
         const topHeight = minHeight + Math.random() * (maxHeight - minHeight);
         
         this.pipes.push({
             x: this.canvas.width,
             topHeight: topHeight,
-            bottomY: topHeight + this.pipeGap,
+            bottomY: topHeight + currentGap,
             passed: false
         });
     }
@@ -102,10 +134,13 @@ class FlappyBirdGame {
                 this.pipeSpawnTimer = 0;
             }
             
+            // Get current speed
+            const currentSpeed = this.getCurrentPipeSpeed();
+            
             // Update pipes
             for (let i = this.pipes.length - 1; i >= 0; i--) {
                 const pipe = this.pipes[i];
-                pipe.x -= this.pipeSpeed;
+                pipe.x -= currentSpeed;
                 
                 // Remove off-screen pipes
                 if (pipe.x + this.pipeWidth < 0) {
@@ -117,6 +152,15 @@ class FlappyBirdGame {
                 if (!pipe.passed && pipe.x + this.pipeWidth < this.birdX) {
                     pipe.passed = true;
                     this.score++;
+                    this.pipesCleared++;
+                    
+                    // Check for level up
+                    const newLevel = Math.floor(this.pipesCleared / this.pipesPerLevel);
+                    if (newLevel > this.currentLevel) {
+                        this.currentLevel = newLevel;
+                        // Optional: Could add visual/audio feedback here
+                    }
+                    
                     this.platform.updateScore(this.score);
                 }
                 
@@ -187,7 +231,7 @@ class FlappyBirdGame {
                    this.birdSize * 0.15, 0, Math.PI * 2);
         this.ctx.fill();
         
-        // Score
+        // Score and game info
         this.ctx.fillStyle = '#fff';
         this.ctx.strokeStyle = '#000';
         this.ctx.lineWidth = 2;
@@ -197,33 +241,69 @@ class FlappyBirdGame {
         this.ctx.strokeText(this.score.toString(), this.canvas.width / 2, 50 * this.scaleY);
         this.ctx.fillText(this.score.toString(), this.canvas.width / 2, 50 * this.scaleY);
         
+        // Progressive difficulty info (top-left corner)
+        if (this.gameStarted && this.running) {
+            this.ctx.textAlign = 'left';
+            const infoSize = Math.max(14, 16 * this.scaleY);
+            this.ctx.font = `${infoSize}px Arial`;
+            
+            const leftMargin = 10 * this.scaleX;
+            const topMargin = 25 * this.scaleY;
+            const lineHeight = 20 * this.scaleY;
+            
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            this.ctx.fillRect(5 * this.scaleX, 5 * this.scaleY, 180 * this.scaleX, 85 * this.scaleY);
+            
+            this.ctx.fillStyle = '#fff';
+            this.ctx.fillText(`Speed: ${this.getCurrentSpeedMultiplier()}x`, leftMargin, topMargin);
+            this.ctx.fillText(`Level: ${this.currentLevel + 1}`, leftMargin, topMargin + lineHeight);
+            this.ctx.fillText(`Gap: ${Math.round(this.getCurrentPipeGap() / this.scaleY)}px`, leftMargin, topMargin + lineHeight * 2);
+            this.ctx.fillText(`Next: ${this.getPipesUntilNextLevel()} pipes`, leftMargin, topMargin + lineHeight * 3);
+        }
+        
         // Instructions
         if (!this.gameStarted) {
             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
             
             this.ctx.fillStyle = '#fff';
+            this.ctx.textAlign = 'center';
             const titleSize = Math.max(32, 48 * this.scaleY);
             this.ctx.font = `bold ${titleSize}px Arial`;
-            this.ctx.fillText('Flappy Bird', this.canvas.width / 2, this.canvas.height / 2 - 50 * this.scaleY);
+            this.ctx.fillText('Flappy Bird', this.canvas.width / 2, this.canvas.height / 2 - 80 * this.scaleY);
             
             const instructSize = Math.max(16, 20 * this.scaleY);
             this.ctx.font = `${instructSize}px Arial`;
-            this.ctx.fillText('Press SPACEBAR to start and flap', this.canvas.width / 2, this.canvas.height / 2);
-            this.ctx.fillText('Avoid the pipes!', this.canvas.width / 2, this.canvas.height / 2 + 30 * this.scaleY);
+            this.ctx.fillText('Press SPACEBAR to start and flap', this.canvas.width / 2, this.canvas.height / 2 - 20 * this.scaleY);
+            this.ctx.fillText('Avoid the pipes!', this.canvas.width / 2, this.canvas.height / 2 + 10 * this.scaleY);
+            
+            // Progressive difficulty explanation
+            const smallSize = Math.max(14, 16 * this.scaleY);
+            this.ctx.font = `${smallSize}px Arial`;
+            this.ctx.fillStyle = '#FFD700';
+            this.ctx.fillText('Game starts with large gaps that shrink as you progress', this.canvas.width / 2, this.canvas.height / 2 + 50 * this.scaleY);
+            
         } else if (!this.running) {
             // Game over screen
             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
             
             this.ctx.fillStyle = '#fff';
+            this.ctx.textAlign = 'center';
             const gameOverSize = Math.max(32, 48 * this.scaleY);
             this.ctx.font = `bold ${gameOverSize}px Arial`;
-            this.ctx.fillText('GAME OVER', this.canvas.width / 2, this.canvas.height / 2 - 30 * this.scaleY);
+            this.ctx.fillText('GAME OVER', this.canvas.width / 2, this.canvas.height / 2 - 60 * this.scaleY);
             
             const scoreSize = Math.max(20, 24 * this.scaleY);
             this.ctx.font = `${scoreSize}px Arial`;
-            this.ctx.fillText(`Final Score: ${this.score}`, this.canvas.width / 2, this.canvas.height / 2 + 20 * this.scaleY);
+            this.ctx.fillText(`Final Score: ${this.score}`, this.canvas.width / 2, this.canvas.height / 2 - 20 * this.scaleY);
+            this.ctx.fillText(`Reached Level: ${this.currentLevel + 1}`, this.canvas.width / 2, this.canvas.height / 2 + 10 * this.scaleY);
+            this.ctx.fillText(`Top Speed: ${this.getCurrentSpeedMultiplier()}x`, this.canvas.width / 2, this.canvas.height / 2 + 40 * this.scaleY);
+            
+            const encourageSize = Math.max(16, 18 * this.scaleY);
+            this.ctx.font = `${encourageSize}px Arial`;
+            this.ctx.fillStyle = '#FFD700';
+            this.ctx.fillText('Great progress! Try again to go faster!', this.canvas.width / 2, this.canvas.height / 2 + 80 * this.scaleY);
         }
     }
 
@@ -241,7 +321,7 @@ class FlappyBirdGame {
         this.running = false;
         setTimeout(() => {
             this.platform.gameOver(this.score);
-        }, 2000);
+        }, 3000); // Slightly longer to read the detailed stats
     }
 
     gameLoop() {
