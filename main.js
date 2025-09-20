@@ -1,11 +1,10 @@
-// Complete main.js - Add these sections to your existing main.js
-
+// main.js - Electron main process
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 // Add the Microbit controller
-const MicrobitArcadeController = require('./microbit-controller');
+const FourMicrobitController = require('./microbit-controller');
 
 // High scores data file
 const scoresFile = path.join(__dirname, 'highscores.json');
@@ -42,7 +41,7 @@ function initializeMicrobitController() {
   console.log('🎮 Initializing Microbit Arcade Controller...');
   
   try {
-    microbitController = new MicrobitArcadeController();
+    microbitController = new FourMicrobitController();
     
     // Listen for button events
     microbitController.on('button-press', (data) => {
