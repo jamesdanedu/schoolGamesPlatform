@@ -41,22 +41,68 @@ class PongGame {
         this.keys[e.key] = false;
     }
 
-    update() {
-        // Player 1 controls (left paddle)
-        if (this.keys['w'] || this.keys['W'] || this.keys['ArrowUp']) {
+    // Handle Microbit button presses
+    handleMicrobitButtonPress(buttonNumber) {
+        switch(buttonNumber) {
+            case 1: // Button 1 - Left paddle up
+                this.keys['leftUp'] = true;
+                break;
+            case 2: // Button 2 - Left paddle down
+                this.keys['leftDown'] = true;
+                break;
+            case 3: // Button 3 - Right paddle up
+                this.keys['rightUp'] = true;
+                break;
+            case 4: // Button 4 - Right paddle down
+                this.keys['rightDown'] = true;
+                break;
+        }
+    }
+
+    // Handle Microbit button releases
+    handleMicrobitButtonRelease(buttonNumber) {
+        switch(buttonNumber) {
+            case 1: // Button 1 - Left paddle up
+                this.keys['leftUp'] = false;
+                break;
+            case 2: // Button 2 - Left paddle down
+                this.keys['leftDown'] = false;
+                break;
+            case 3: // Button 3 - Right paddle up
+                this.keys['rightUp'] = false;
+                break;
+            case 4: // Button 4 - Right paddle down
+                this.keys['rightDown'] = false;
+                break;
+        }
+    }
+
+    // Complete update() method for PongGame class
+// Replace your existing update() method with this:
+
+update() {
+        // Left paddle controls (Button 1 = Up, Button 2 = Down, or keyboard W/S/Arrow Keys)
+        if (this.keys['leftUp'] || this.keys['w'] || this.keys['W'] || this.keys['ArrowUp']) {
             this.paddle1Y = Math.max(0, this.paddle1Y - this.paddleSpeed);
         }
-        if (this.keys['s'] || this.keys['S'] || this.keys['ArrowDown']) {
+        if (this.keys['leftDown'] || this.keys['s'] || this.keys['S'] || this.keys['ArrowDown']) {
             this.paddle1Y = Math.min(this.canvas.height - this.paddleHeight, this.paddle1Y + this.paddleSpeed);
         }
 
-        // Simple AI for player 2 (right paddle)
-        const paddle2Center = this.paddle2Y + this.paddleHeight / 2;
-        const aiSpeed = this.paddleSpeed * 0.75;
-        if (paddle2Center < this.ballY - 35 * this.scaleY) {
-            this.paddle2Y = Math.min(this.canvas.height - this.paddleHeight, this.paddle2Y + aiSpeed);
-        } else if (paddle2Center > this.ballY + 35 * this.scaleY) {
-            this.paddle2Y = Math.max(0, this.paddle2Y - aiSpeed);
+        // Right paddle controls (Button 3 = Up, Button 4 = Down, or AI)
+        if (this.keys['rightUp']) {
+            this.paddle2Y = Math.max(0, this.paddle2Y - this.paddleSpeed);
+        } else if (this.keys['rightDown']) {
+            this.paddle2Y = Math.min(this.canvas.height - this.paddleHeight, this.paddle2Y + this.paddleSpeed);
+        } else {
+            // AI for right paddle when buttons 3&4 aren't pressed
+            const paddle2Center = this.paddle2Y + this.paddleHeight / 2;
+            const aiSpeed = this.paddleSpeed * 0.75;
+            if (paddle2Center < this.ballY - 35 * this.scaleY) {
+                this.paddle2Y = Math.min(this.canvas.height - this.paddleHeight, this.paddle2Y + aiSpeed);
+            } else if (paddle2Center > this.ballY + 35 * this.scaleY) {
+                this.paddle2Y = Math.max(0, this.paddle2Y - aiSpeed);
+            }
         }
 
         // Ball movement

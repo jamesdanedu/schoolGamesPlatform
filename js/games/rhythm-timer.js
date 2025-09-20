@@ -1,4 +1,4 @@
-// js/games/rhythm-timer.js - Rhythm Timer Game Implementation
+// js/games/rhythm-timer.js - Rhythm Timer Game Implementation with Button Support and Restart
 
 class RhythmTimerGame {
     constructor(canvas, ctx, platform) {
@@ -19,8 +19,11 @@ class RhythmTimerGame {
         this.score = 0;
         this.streak = 0;
         this.maxStreak = 0;
+        this.totalHits = 0;
+        this.totalMisses = 0;
         this.running = true;
         this.gameStarted = false;
+        this.gameOver = false; // Track if game ended
         
         // Timing
         this.lastBeatTime = 0;
@@ -91,15 +94,20 @@ class RhythmTimerGame {
     }
 
     handleKeyDown(e) {
+        // Check if game is over and allow restart
+        if (this.gameOver) {
+            this.restartGame();
+            e.preventDefault();
+            return;
+        }
+
         if (e.key === ' ' || e.key === 'Spacebar') {
             e.preventDefault();
             
             if (!this.spacePressed) {
                 if (!this.gameStarted) {
-                    this.gameStarted = true;
-                    this.lastBeatTime = Date.now();
-                    this.nextBeatTime = this.lastBeatTime + this.beatInterval;
-                } else {
+                    this.startGame();
+                } else if (this.running) {
                     this.onPlayerHit();
                 }
                 this.spacePressed = true;
@@ -111,6 +119,68 @@ class RhythmTimerGame {
         if (e.key === ' ' || e.key === 'Spacebar') {
             this.spacePressed = false;
         }
+    }
+
+    // Add Microbit button support
+    handleMicrobitButtonPress(buttonNumber) {
+        // Check if game is over and allow restart
+        if (this.gameOver) {
+            this.restartGame();
+            return;
+        }
+        
+        if (!this.gameStarted) {
+            this.startGame();
+        } else if (this.running) {
+            this.onPlayerHit();
+        }
+    }
+
+    handleMicrobitButtonRelease(buttonNumber) {
+        // No action needed for rhythm timer on release
+    }
+
+    startGame() {
+        this.gameStarted = true;
+        this.startTime = Date.now();
+        this.score = 0;
+        this.streak = 0;
+        this.maxStreak = 0;
+        this.totalHits = 0;
+        this.totalMisses = 0;
+        this.running = true;
+        this.gameOver = false;
+        this.lastBeatTime = Date.now();
+        this.nextBeatTime = this.lastBeatTime + this.beatInterval;
+        
+        // Clear visual effects
+        this.beatCircles = [];
+        this.particles = [];
+        
+        this.platform.updateScore(this.score);
+    }
+
+    restartGame() {
+        console.log('Restarting Rhythm Timer game...');
+        
+        // Reset all game state
+        this.gameStarted = false;
+        this.gameOver = false;
+        this.running = true;
+        this.score = 0;
+        this.streak = 0;
+        this.maxStreak = 0;
+        this.totalHits = 0;
+        this.totalMisses = 0;
+        
+        // Clear visual effects
+        this.beatCircles = [];
+        this.particles = [];
+        
+        // Update platform score
+        this.platform.updateScore(this.score);
+        
+        // Will show start screen again
     }
 
     onPlayerHit() {
@@ -127,6 +197,7 @@ class RhythmTimerGame {
             this.score += points;
             this.streak++;
             this.maxStreak = Math.max(this.maxStreak, this.streak);
+            this.totalHits++;
             
             this.platform.updateScore(this.score);
             this.playHitSound(accuracy);
@@ -135,6 +206,7 @@ class RhythmTimerGame {
         } else {
             // Missed the beat
             this.streak = 0;
+            this.totalMisses++;
             this.addMissParticles();
         }
     }
@@ -218,8 +290,14 @@ class RhythmTimerGame {
         
         // End game after 30 seconds
         if (this.currentTime - this.startTime > 30000) {
-            this.gameOver();
+            this.endGame();
         }
+    }
+
+    endGame() {
+        this.running = false;
+        this.gameOver = true;
+        console.log('Rhythm Timer game ended - press any button to restart');
     }
 
     draw() {
@@ -238,12 +316,15 @@ class RhythmTimerGame {
             this.ctx.fillStyle = '#fff';
             this.ctx.font = `bold ${Math.max(32, 48 * this.scaleY)}px Arial`;
             this.ctx.textAlign = 'center';
-            this.ctx.fillText('Rhythm Timer', this.canvas.width / 2, this.canvas.height / 2 - 50 * this.scaleY);
+            this.ctx.fillText('Rhythm Timer', this.canvas.width / 2, this.canvas.height / 2 - 100 * this.scaleY);
             
             this.ctx.font = `${Math.max(16, 20 * this.scaleY)}px Arial`;
             this.ctx.fillText('Press SPACEBAR on the beat!', this.canvas.width / 2, this.canvas.height / 2);
             this.ctx.fillText('Listen for the sound and watch the circle', this.canvas.width / 2, this.canvas.height / 2 + 30 * this.scaleY);
-            this.ctx.fillText('Press SPACEBAR to start', this.canvas.width / 2, this.canvas.height / 2 + 60 * this.scaleY);
+            
+            this.ctx.fillStyle = '#ffff00';
+            this.ctx.font = `bold ${Math.max(18, 24 * this.scaleY)}px Arial`;
+            this.ctx.fillText('Press SPACEBAR or any button to start', this.canvas.width / 2, this.canvas.height / 2 + 60 * this.scaleY);
             return;
         }
         
@@ -299,34 +380,49 @@ class RhythmTimerGame {
         this.ctx.textAlign = 'right';
         this.ctx.fillText(`Time: ${timeLeft.toFixed(1)}s`, this.canvas.width - 20, 30);
         
-        if (!this.running) {
-            // Game over screen
+        // Game over screen
+        if (this.gameOver) {
             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
             
             this.ctx.fillStyle = '#fff';
             this.ctx.font = `bold ${Math.max(32, 48 * this.scaleY)}px Arial`;
             this.ctx.textAlign = 'center';
-            this.ctx.fillText('TIME UP!', this.canvas.width / 2, this.canvas.height / 2 - 30 * this.scaleY);
+            this.ctx.fillText('TIME UP!', this.canvas.width / 2, this.canvas.height / 2 - 60 * this.scaleY);
             
-            this.ctx.font = `${Math.max(20, 24 * this.scaleY)}px Arial`;
-            this.ctx.fillText(`Final Score: ${this.score}`, this.canvas.width / 2, this.canvas.height / 2 + 20 * this.scaleY);
-            this.ctx.fillText(`Best Streak: ${this.maxStreak}`, this.canvas.width / 2, this.canvas.height / 2 + 50 * this.scaleY);
+            this.ctx.font = `${Math.max(20, 26 * this.scaleY)}px Arial`;
+            this.ctx.fillText(`Final Score: ${this.score}`, this.canvas.width / 2, this.canvas.height / 2 - 20 * this.scaleY);
+            this.ctx.fillText(`Best Streak: ${this.maxStreak}`, this.canvas.width / 2, this.canvas.height / 2 + 10 * this.scaleY);
+            
+            // Accuracy calculation
+            const accuracy = this.totalHits + this.totalMisses > 0 ? 
+                (this.totalHits / (this.totalHits + this.totalMisses) * 100).toFixed(1) : 0;
+            this.ctx.fillText(`Accuracy: ${accuracy}%`, this.canvas.width / 2, this.canvas.height / 2 + 40 * this.scaleY);
+            
+            // Restart instruction
+            this.ctx.fillStyle = '#ffff00';
+            this.ctx.font = `bold ${Math.max(18, 22 * this.scaleY)}px Arial`;
+            this.ctx.fillText('Press any button or Spacebar to play again', this.canvas.width / 2, this.canvas.height / 2 + 80 * this.scaleY);
         }
     }
 
     gameOver() {
-        this.running = false;
+        // This method is kept for compatibility but now calls endGame
+        this.endGame();
+        
+        // Only trigger platform game over after a delay, giving chance to restart
         setTimeout(() => {
-            this.platform.gameOver(this.score);
-        }, 2000);
+            if (this.gameOver) { // Only if still in game over state (not restarted)
+                this.platform.gameOver(this.score);
+            }
+        }, 5000); // 5 second delay before going to menu
     }
 
     gameLoop() {
         this.update();
         this.draw();
         
-        if (this.running || !this.gameStarted) {
+        if (this.running || !this.gameStarted || this.gameOver) {
             requestAnimationFrame(this.gameLoop);
         }
     }
