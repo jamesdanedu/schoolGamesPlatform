@@ -1,4 +1,4 @@
-// Complete platform.js - Add/update these sections in your existing platform.js
+// platform.js 
 
 const { ipcRenderer } = require('electron');
 
@@ -61,6 +61,14 @@ class GamesPlatform {
         // Convert Microbit button press to game-appropriate input
         if (!this.gameInstance) return;
 
+        // For Pong game - use 4-button layout
+        if (this.currentGame === 'pong') {
+            if (this.gameInstance.handleMicrobitButtonPress) {
+                this.gameInstance.handleMicrobitButtonPress(data.button);
+            }
+            return;
+        }
+
         // For Stream Stop game - map buttons to streams
         if (this.currentGame === 'streamstop') {
             if (this.gameInstance.handleKeyDown) {
@@ -73,27 +81,39 @@ class GamesPlatform {
             return;
         }
 
+        // For Rhythm Timer game - map all buttons to spacebar
+        if (this.currentGame === 'rhythmtimer') {
+            if (this.gameInstance.handleMicrobitButtonPress) {
+                this.gameInstance.handleMicrobitButtonPress(data.button);
+            } else {
+                // Fallback to spacebar
+                const keyEvent = { key: ' ', preventDefault: () => {} };
+                this.gameInstance.handleKeyDown(keyEvent);
+            }
+            return;
+        }
+
         // For other games - map to spacebar or arrow keys
         if (this.gameInstance.handleKeyDown) {
             let keyEvent = { preventDefault: () => {} };
             
             switch (this.currentGame) {
                 case 'flappybird':
-                case 'rhythmtimer':
                 case 'stopthesprite':
                     // These games use spacebar
                     keyEvent.key = ' ';
                     break;
                     
                 case 'snake':
-                    // Map buttons to arrow keys for snake
-                    const arrowKeys = ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'];
-                    keyEvent.key = arrowKeys[data.button - 1];
-                    break;
-                    
-                case 'pong':
-                    // Map to W/S for pong
-                    keyEvent.key = (data.button <= 2) ? 'w' : 's';
+                    // Use 4-button intuitive layout for Snake
+                    if (this.gameInstance.handleMicrobitButtonPress) {
+                        this.gameInstance.handleMicrobitButtonPress(data.button);
+                    } else {
+                        // Fallback to old arrow key mapping
+                        const arrowKeys = ['ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown'];
+                        keyEvent.key = arrowKeys[data.button - 1];
+                        this.gameInstance.handleKeyDown(keyEvent);
+                    }
                     break;
                     
                 default:
@@ -105,33 +125,42 @@ class GamesPlatform {
         }
     }
 
-    handleMicrobitButtonRelease(data) {
-        if (!this.gameInstance || !this.gameInstance.handleKeyUp) return;
+       handleMicrobitButtonRelease(data) {
+        if (!this.gameInstance) return;
 
-        // Similar mapping for key release
-        if (this.currentGame === 'streamstop') {
-            const streamKeys = ['a', 's', 'd', 'f'];
-            const key = streamKeys[data.button - 1];
-            this.gameInstance.handleKeyUp({ key: key, preventDefault: () => {} });
+        // For Pong game - handle button releases
+        if (this.currentGame === 'pong') {
+            if (this.gameInstance.handleMicrobitButtonRelease) {
+                this.gameInstance.handleMicrobitButtonRelease(data.button);
+            }
             return;
         }
 
-        // For other games
-        let keyEvent = { preventDefault: () => {} };
-        
-        switch (this.currentGame) {
-            case 'snake':
-                const arrowKeys = ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'];
-                keyEvent.key = arrowKeys[data.button - 1];
-                break;
-            case 'pong':
-                keyEvent.key = (data.button <= 2) ? 'w' : 's';
-                break;
-            default:
-                keyEvent.key = ' ';
+        // For Stream Stop game
+        if (this.currentGame === 'streamstop') {
+            const streamKeys = ['a', 's', 'd', 'f'];
+            const key = streamKeys[data.button - 1];
+            if (this.gameInstance.handleKeyUp) {
+                this.gameInstance.handleKeyUp({ key: key, preventDefault: () => {} });
+            }
+            return;
         }
-        
-        this.gameInstance.handleKeyUp(keyEvent);
+
+        // For other games that need key release
+        if (this.gameInstance.handleKeyUp) {
+            let keyEvent = { preventDefault: () => {} };
+            
+            switch (this.currentGame) {
+                case 'snake':
+                    const arrowKeys = ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'];
+                    keyEvent.key = arrowKeys[data.button - 1];
+                    break;
+                default:
+                    keyEvent.key = ' ';
+            }
+            
+            this.gameInstance.handleKeyUp(keyEvent);
+        }
     }
 
     updateButtonIndicator(buttonNumber, pressed) {
