@@ -60,7 +60,7 @@ class GamesPlatform {
     handleMicrobitButtonPress(data) {
         // Convert Microbit button press to game-appropriate input
         if (!this.gameInstance) return;
-
+    
         // For Pong game - use 4-button layout
         if (this.currentGame === 'pong') {
             if (this.gameInstance.handleMicrobitButtonPress) {
@@ -68,20 +68,21 @@ class GamesPlatform {
             }
             return;
         }
-
-        // For Stream Stop game - map buttons to streams
-        if (this.currentGame === 'streamstop') {
-            if (this.gameInstance.handleKeyDown) {
-                // Map buttons to Stream Stop keys: Green1=a, White=s, Red=d, Green2=f
-                const streamKeys = ['a', 's', 'd', 'f'];
-                const key = streamKeys[data.button - 1];
-                
-                this.gameInstance.handleKeyDown({ key: key, preventDefault: () => {} });
+    
+        // For Snake game - intuitive directional layout
+        if (this.currentGame === 'snake') {
+            if (this.gameInstance.handleMicrobitButtonPress) {
+                this.gameInstance.handleMicrobitButtonPress(data.button);
+            } else {
+                // Fallback to arrow keys
+                const arrowKeys = ['ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown'];
+                const keyEvent = { key: arrowKeys[data.button - 1], preventDefault: () => {} };
+                this.gameInstance.handleKeyDown(keyEvent);
             }
             return;
         }
-
-        // For Rhythm Timer game - map all buttons to spacebar
+    
+        // For Rhythm Timer - any button works
         if (this.currentGame === 'rhythmtimer') {
             if (this.gameInstance.handleMicrobitButtonPress) {
                 this.gameInstance.handleMicrobitButtonPress(data.button);
@@ -92,40 +93,32 @@ class GamesPlatform {
             }
             return;
         }
-
-        // For other games - map to spacebar or arrow keys
-        if (this.gameInstance.handleKeyDown) {
-            let keyEvent = { preventDefault: () => {} };
-            
-            switch (this.currentGame) {
-                case 'flappybird':
-                case 'stopthesprite':
-                    // These games use spacebar
-                    keyEvent.key = ' ';
-                    break;
-                    
-                case 'snake':
-                    // Use 4-button intuitive layout for Snake
-                    if (this.gameInstance.handleMicrobitButtonPress) {
-                        this.gameInstance.handleMicrobitButtonPress(data.button);
-                    } else {
-                        // Fallback to old arrow key mapping
-                        const arrowKeys = ['ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown'];
-                        keyEvent.key = arrowKeys[data.button - 1];
-                        this.gameInstance.handleKeyDown(keyEvent);
-                    }
-                    break;
-                    
-                default:
-                    // Default to spacebar
-                    keyEvent.key = ' ';
+    
+        // For Stop the Sprite - spacebar only
+        if (this.currentGame === 'stopthesprite') {
+            const keyEvent = { key: ' ', preventDefault: () => {} };
+            this.gameInstance.handleKeyDown(keyEvent);
+            return;
+        }
+    
+        // For Stream Stop game - map buttons to streams
+        if (this.currentGame === 'streamstop') {
+            if (this.gameInstance.handleKeyDown) {
+                const streamKeys = ['a', 's', 'd', 'f'];
+                const key = streamKeys[data.button - 1];
+                this.gameInstance.handleKeyDown({ key: key, preventDefault: () => {} });
             }
-            
+            return;
+        }
+    
+        // For other games - default to spacebar
+        if (this.gameInstance.handleKeyDown) {
+            const keyEvent = { key: ' ', preventDefault: () => {} };
             this.gameInstance.handleKeyDown(keyEvent);
         }
     }
 
-       handleMicrobitButtonRelease(data) {
+        handleMicrobitButtonRelease(data) {
         if (!this.gameInstance) return;
 
         // For Pong game - handle button releases
