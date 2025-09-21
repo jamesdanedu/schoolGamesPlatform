@@ -8,6 +8,7 @@ class GamesPlatform {
         this.gameInstance = null;
         this.microbitConnected = false;
         this.buttonStates = [false, false, false, false]; // Green1, White, Red, Green2
+        this.gameOverInProgress = false; // Prevent multiple game over calls
         
         console.log('GamesPlatform initializing...');
         this.initializeEventListeners();
@@ -371,9 +372,23 @@ class GamesPlatform {
     async startGame(gameType) {
         console.log(`Starting game: ${gameType}`);
         
+        // Clean up any existing game first
+        if (this.gameInstance) {
+            if (this.gameInstance.destroy) {
+                this.gameInstance.destroy();
+            }
+            this.gameInstance = null;
+        }
+        
+        // Reset any flags and clean up intervals
+        this.gameOverInProgress = false;
+        if (this.rhythmLEDInterval) {
+            clearInterval(this.rhythmLEDInterval);
+            this.rhythmLEDInterval = null;
+        }
+        
         // Run game start LED pattern
         await this.onGameStart();
-        
         this.currentGame = gameType;
         
         // Hide main menu, show game screen
