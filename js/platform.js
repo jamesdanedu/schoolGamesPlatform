@@ -525,30 +525,37 @@ class GamesPlatform {
             }
         }, 50);
     }
-
     async returnToMenu() {
         console.log('Returning to menu...');
         
         // Clean up any LED intervals
         if (this.rhythmLEDInterval) {
             clearInterval(this.rhythmLEDInterval);
+            this.rhythmLEDInterval = null;
         }
         
-        // Turn off all LEDs when returning to menu
-        await this.setAllLEDs(false);
-        
-        if (this.gameInstance && this.gameInstance.destroy) {
-            this.gameInstance.destroy();
+        // Properly destroy game instance
+        if (this.gameInstance) {
+            if (this.gameInstance.destroy) {
+                this.gameInstance.destroy();
+            }
+            // Clear any timeouts the game might have set
+            this.gameInstance = null;
         }
         
-        this.gameInstance = null;
+        // Clear the current game reference
         this.currentGame = null;
+        
+        // Turn off all LEDs
+        await this.setAllLEDs(false);
         
         const gameScreen = document.getElementById('gameScreen');
         const mainMenu = document.getElementById('mainMenu');
         
         if (gameScreen) gameScreen.style.display = 'none';
         if (mainMenu) mainMenu.style.display = 'block';
+        
+        console.log('Returned to main menu successfully');
     }
 
     async gameOver(score) {
