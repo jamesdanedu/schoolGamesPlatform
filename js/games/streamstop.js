@@ -14,9 +14,9 @@ class StreamStopGame {
         this.gameMode = null; // Will be set when player selects mode
         this.modeSelected = false;
         this.availableModes = [
-            { players: 1, name: "1-Player Mode", description: "Slow & steady", color: "#4CAF50" },
-            { players: 2, name: "2-Player Mode", description: "Medium speed", color: "#FF9800" }, 
-            { players: 4, name: "4-Player Mode", description: "Fast & furious!", color: "#F44336" }
+            { players: 1, name: "1-Player Mode", description: "Slow speed, control all 4 streams!", color: "#4CAF50" },
+            { players: 2, name: "2-Player Mode", description: "Medium speed, 2 streams each", color: "#FF9800" }, 
+            { players: 4, name: "4-Player Mode", description: "Fast speed, 1 stream each", color: "#F44336" }
         ];
         this.selectedModeIndex = 0;
         
@@ -33,7 +33,10 @@ class StreamStopGame {
                 baseSpawnRate: 0.002,                  // Lower spawn rate
                 maxSpawnRate: 0.005,                   // Lower max spawn rate
                 speedIncreaseRate: 0.0008,             // Gradual speed increase
-                activeStreams: [1]                     // Only use stream 2 (middle-left)
+                activeStreams: [0, 1, 2, 3],           // Use ALL 4 streams - 1 player multitasks
+                playerAssignments: {
+                    1: [0, 1, 2, 3]                    // Player 1 controls all streams
+                }
             },
             2: {
                 baseSpriteSpeed: 1.5 * this.scaleY,   // Medium base speed
@@ -41,7 +44,11 @@ class StreamStopGame {
                 baseSpawnRate: 0.004,                  // Medium spawn rate
                 maxSpawnRate: 0.008,                   // Medium max spawn rate
                 speedIncreaseRate: 0.001,              // Medium speed increase
-                activeStreams: [0, 2]                  // Use streams 1 and 3 (left and right sides)
+                activeStreams: [0, 1, 2, 3],           // Use all 4 streams
+                playerAssignments: {
+                    1: [0, 1],                         // Player 1 controls streams 1 & 2 (buttons 1 & 2)
+                    2: [2, 3]                          // Player 2 controls streams 3 & 4 (buttons 3 & 4)
+                }
             },
             4: {
                 baseSpriteSpeed: 2.0 * this.scaleY,   // Fast base speed
@@ -49,7 +56,13 @@ class StreamStopGame {
                 baseSpawnRate: 0.006,                  // High spawn rate
                 maxSpawnRate: 0.015,                   // High max spawn rate  
                 speedIncreaseRate: 0.0015,             // Rapid speed increase
-                activeStreams: [0, 1, 2, 3]           // Use all 4 streams
+                activeStreams: [0, 1, 2, 3],           // Use all 4 streams
+                playerAssignments: {
+                    1: [0],                            // Player 1 controls stream 1 (button 1)
+                    2: [1],                            // Player 2 controls stream 2 (button 2)  
+                    3: [2],                            // Player 3 controls stream 3 (button 3)
+                    4: [3]                             // Player 4 controls stream 4 (button 4)
+                }
             }
         };
         
@@ -113,12 +126,15 @@ class StreamStopGame {
             this.maxSpawnRate = config.maxSpawnRate;
             this.speedIncreaseRate = config.speedIncreaseRate;
             this.activeStreams = config.activeStreams;
+            this.playerAssignments = config.playerAssignments;
             
             // Set initial values
             this.spriteSpeed = this.baseSpriteSpeed;
             this.currentSpawnRate = this.baseSpawnRate;
             
-            console.log(`Selected ${this.gameMode.name} - Active streams: ${this.activeStreams.map(i => i + 1).join(', ')}`);
+            console.log(`Selected ${this.gameMode.name}`);
+            console.log(`Active streams: ${this.activeStreams.map(i => i + 1).join(', ')}`);
+            console.log(`Player assignments:`, this.playerAssignments);
             console.log(`Speed range: ${this.baseSpriteSpeed.toFixed(1)} - ${this.maxSpriteSpeed.toFixed(1)}`);
         }
     }
@@ -177,10 +193,10 @@ class StreamStopGame {
             }
         }
         
-        // In-game controls - only for active streams
+        // In-game controls - check if button is assigned to any player
         if (this.gameStarted && this.running) {
             const streamIndex = this.streamKeys.indexOf(key);
-            if (streamIndex !== -1 && this.activeStreams.includes(streamIndex)) {
+            if (streamIndex !== -1 && this.isStreamControlledByAnyPlayer(streamIndex)) {
                 if (!this.keyPressed[key]) {
                     console.log(`Key ${key.toUpperCase()} pressed -> Stream ${streamIndex + 1}`);
                     this.stopSprite(streamIndex);
@@ -188,6 +204,30 @@ class StreamStopGame {
                 }
             }
         }
+    }
+    
+    // Helper function to check if a stream is controlled by any player in current mode
+    isStreamControlledByAnyPlayer(streamIndex) {
+        if (!this.playerAssignments) return true; // Fallback for old modes
+        
+        for (const playerStreams of Object.values(this.playerAssignments)) {
+            if (playerStreams.includes(streamIndex)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    // Helper function to get which player number controls a specific stream
+    getPlayerForStream(streamIndex) {
+        if (!this.playerAssignments) return 1; // Fallback
+        
+        for (const [playerNum, streams] of Object.entries(this.playerAssignments)) {
+            if (streams.includes(streamIndex)) {
+                return parseInt(playerNum);
+            }
+        }
+        return 1; // Fallback
     }
     
     handleKeyUp(e) {
@@ -213,11 +253,11 @@ class StreamStopGame {
             return;
         }
 
-        // In-game controls - only for active streams
+        // In-game controls - check if button controls a stream in current mode
         if (this.gameStarted && this.running) {
             const streamIndex = buttonNumber - 1;
             
-            if (streamIndex >= 0 && streamIndex < this.numStreams && this.activeStreams.includes(streamIndex)) {
+            if (streamIndex >= 0 && streamIndex < this.numStreams && this.isStreamControlledByAnyPlayer(streamIndex)) {
                 const currentTime = Date.now();
                 
                 // Prevent button spam (minimum 100ms between presses)
@@ -227,7 +267,8 @@ class StreamStopGame {
                 
                 this.lastButtonPresses[streamIndex] = currentTime;
                 
-                console.log(`🎮 Button ${buttonNumber} pressed -> Stream ${streamIndex + 1}`);
+                const playerNum = this.getPlayerForStream(streamIndex);
+                console.log(`🎮 Button ${buttonNumber} (Player ${playerNum}) pressed -> Stream ${streamIndex + 1}`);
                 this.stopSprite(streamIndex);
             }
         }
@@ -269,9 +310,9 @@ class StreamStopGame {
     stopSprite(streamIndex) {
         if (!this.gameStarted || !this.running) return;
         
-        // Only allow stopping sprites in active streams
-        if (!this.activeStreams.includes(streamIndex)) {
-            console.log(`Stream ${streamIndex + 1} is not active in ${this.gameMode.name}`);
+        // Check if this stream is controlled by any player in current mode
+        if (!this.isStreamControlledByAnyPlayer(streamIndex)) {
+            console.log(`Stream ${streamIndex + 1} is not controlled by any player in ${this.gameMode.name}`);
             return;
         }
         
@@ -282,7 +323,8 @@ class StreamStopGame {
         if (currentTime - stream.lastStop < 100) return;
         stream.lastStop = currentTime;
         
-        console.log(`Attempting to stop sprite in stream ${streamIndex + 1}`);
+        const playerNum = this.getPlayerForStream(streamIndex);
+        console.log(`Player ${playerNum} attempting to stop sprite in stream ${streamIndex + 1}`);
         
         // Find the sprite closest to the target zone
         let closestSprite = null;
@@ -583,11 +625,20 @@ class StreamStopGame {
             this.ctx.font = `${Math.max(18, 22 * this.scaleY)}px Arial`;
             this.ctx.fillText(this.gameMode.description, this.canvas.width / 2, this.canvas.height / 2 - 60 * this.scaleY);
             
-            // Show active streams
+            // Show active streams and player assignments
             this.ctx.fillStyle = '#fff';
             this.ctx.font = `${Math.max(16, 20 * this.scaleY)}px Arial`;
-            const activeStreamText = `Active Streams: ${this.activeStreams.map(i => i + 1).join(', ')}`;
-            this.ctx.fillText(activeStreamText, this.canvas.width / 2, this.canvas.height / 2 - 20 * this.scaleY);
+            
+            if (this.gameMode.players === 1) {
+                this.ctx.fillText('You control ALL 4 streams - multitask!', this.canvas.width / 2, this.canvas.height / 2 - 20 * this.scaleY);
+                this.ctx.fillText('🎮 Buttons: 1️⃣ 2️⃣ 3️⃣ 4️⃣', this.canvas.width / 2, this.canvas.height / 2);
+            } else if (this.gameMode.players === 2) {
+                this.ctx.fillText('Player 1: Streams 1 & 2 (🎮 1️⃣ 2️⃣)', this.canvas.width / 2, this.canvas.height / 2 - 30 * this.scaleY);
+                this.ctx.fillText('Player 2: Streams 3 & 4 (🎮 3️⃣ 4️⃣)', this.canvas.width / 2, this.canvas.height / 2 - 10 * this.scaleY);
+            } else if (this.gameMode.players === 4) {
+                this.ctx.fillText('Each player controls 1 stream', this.canvas.width / 2, this.canvas.height / 2 - 20 * this.scaleY);
+                this.ctx.fillText('P1:🎮1️⃣ P2:🎮2️⃣ P3:🎮3️⃣ P4:🎮4️⃣', this.canvas.width / 2, this.canvas.height / 2);
+            }
             
             // Speed info
             this.ctx.fillText(`Speed: ${this.baseSpriteSpeed.toFixed(1)} → ${this.maxSpriteSpeed.toFixed(1)}`, 
@@ -625,24 +676,28 @@ class StreamStopGame {
         // Draw target zones
         this.drawTargetZones();
         
-        // Draw stream labels - highlight active streams
+        // Draw stream labels - highlight based on player assignments
         this.ctx.font = `${Math.max(14, 18 * this.scaleY)}px Arial`;
         this.ctx.textAlign = 'center';
         for (let i = 0; i < this.numStreams; i++) {
             const x = (i + 0.5) * this.streamWidth;
-            const isActive = this.activeStreams.includes(i);
+            const playerNum = this.getPlayerForStream(i);
             
-            this.ctx.fillStyle = isActive ? '#fff' : '#666';
-            const text = `🎮${i + 1} ${this.streamKeys[i].toUpperCase()}`;
-            this.ctx.fillText(text, x, 25 * this.scaleY);
+            // Color code by player
+            const playerColors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0']; // Green, Blue, Orange, Purple
+            this.ctx.fillStyle = playerColors[playerNum - 1] || '#fff';
             
-            if (!isActive) {
-                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-                this.ctx.fillRect(i * this.streamWidth, 0, this.streamWidth, this.canvas.height);
+            let text;
+            if (this.gameMode.players === 1) {
+                text = `🎮${i + 1} ${this.streamKeys[i].toUpperCase()}`;
+            } else {
+                text = `P${playerNum} 🎮${i + 1} ${this.streamKeys[i].toUpperCase()}`;
             }
+            
+            this.ctx.fillText(text, x, 25 * this.scaleY);
         }
         
-        // Draw sprites
+        // Draw sprites in all active streams
         this.streams.forEach((stream, streamIndex) => {
             if (this.activeStreams.includes(streamIndex)) {
                 stream.sprites.forEach(sprite => {
@@ -730,19 +785,27 @@ class StreamStopGame {
     drawTargetZones() {
         for (let i = 0; i < this.numStreams; i++) {
             const x = i * this.streamWidth;
-            const isActive = !this.modeSelected || this.activeStreams.includes(i);
+            // All streams are active in the new design, but color-code by player
+            const playerNum = this.modeSelected ? this.getPlayerForStream(i) : 1;
+            const playerColors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0']; // Green, Blue, Orange, Purple
+            const playerColor = playerColors[playerNum - 1] || '#ffff00';
             
             // Target zone background
-            this.ctx.fillStyle = isActive ? 'rgba(255, 255, 0, 0.2)' : 'rgba(100, 100, 100, 0.1)';
+            this.ctx.fillStyle = playerColor.replace('#', 'rgba(') + ', 0.2)'.replace('rgba(rgba(', 'rgba(');
+            // Convert hex to rgba properly
+            const r = parseInt(playerColor.slice(1, 3), 16);
+            const g = parseInt(playerColor.slice(3, 5), 16);
+            const b = parseInt(playerColor.slice(5, 7), 16);
+            this.ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.2)`;
             this.ctx.fillRect(x, this.targetZoneY, this.streamWidth, this.targetHeight);
             
             // Target zone border
-            this.ctx.strokeStyle = isActive ? '#ffff00' : '#666';
-            this.ctx.lineWidth = isActive ? 3 : 1;
+            this.ctx.strokeStyle = playerColor;
+            this.ctx.lineWidth = 3;
             this.ctx.strokeRect(x, this.targetZoneY, this.streamWidth, this.targetHeight);
             
             // Center line
-            this.ctx.strokeStyle = isActive ? '#ffff00' : '#666';
+            this.ctx.strokeStyle = playerColor;
             this.ctx.lineWidth = 2;
             this.ctx.setLineDash([5, 5]);
             this.ctx.beginPath();
