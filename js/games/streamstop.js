@@ -1,4 +1,4 @@
-// js/games/streamstop.js - Stream Stop Game Implementation (Fixed)
+// js/games/streamstop.js - Stream Stop Game Implementation (Fixed Button Mapping)
 
 class StreamStopGame {
     constructor(canvas, ctx, platform) {
@@ -31,13 +31,8 @@ class StreamStopGame {
         this.targetHeight = 60 * this.scaleY;
         this.targetZoneY = this.targetY - this.targetHeight / 2;
         
-        // Stream control keys
-        this.streamKeys = [
-            ['a', 'h'], // Stream 0
-            ['s', 'j'], // Stream 1  
-            ['d', 'k'], // Stream 2
-            ['f', 'l']  // Stream 3
-        ];
+        // Stream control keys - simplified to match platform mapping
+        this.streamKeys = ['a', 's', 'd', 'f']; // Direct mapping for 4 buttons
         
         // Game state
         this.streams = [];
@@ -59,12 +54,15 @@ class StreamStopGame {
         // Controls
         this.keys = {};
         this.keyPressed = {};
+        this.lastButtonPresses = [0, 0, 0, 0]; // Track last press time for each button to prevent spam
         
         // Initialize streams
         this.initializeStreams();
         
         this.gameLoop = this.gameLoop.bind(this);
         this.gameLoop();
+        
+        console.log('StreamStop initialized with button mapping: 1→A, 2→S, 3→D, 4→F');
     }
     
     initializeStreams() {
@@ -89,14 +87,13 @@ class StreamStopGame {
             }
         }
         
-        // Check if key corresponds to a stream
-        for (let streamIndex = 0; streamIndex < this.streamKeys.length; streamIndex++) {
-            if (this.streamKeys[streamIndex].includes(key)) {
-                if (!this.keyPressed[key]) {
-                    this.stopSprite(streamIndex);
-                    this.keyPressed[key] = true;
-                }
-                break;
+        // Find which stream this key corresponds to
+        const streamIndex = this.streamKeys.indexOf(key);
+        if (streamIndex !== -1) {
+            if (!this.keyPressed[key]) {
+                console.log(`Key ${key.toUpperCase()} pressed -> Stream ${streamIndex + 1}`);
+                this.stopSprite(streamIndex);
+                this.keyPressed[key] = true;
             }
         }
     }
@@ -105,6 +102,35 @@ class StreamStopGame {
         const key = e.key.toLowerCase();
         this.keys[key] = false;
         this.keyPressed[key] = false;
+    }
+
+    // Add Microbit button support with direct mapping
+    handleMicrobitButtonPress(buttonNumber) {
+        if (!this.gameStarted) {
+            this.startGame();
+            return;
+        }
+
+        // Direct mapping: Button 1→Stream 0, Button 2→Stream 1, etc.
+        const streamIndex = buttonNumber - 1;
+        
+        if (streamIndex >= 0 && streamIndex < this.numStreams) {
+            const currentTime = Date.now();
+            
+            // Prevent button spam (minimum 100ms between presses)
+            if (currentTime - this.lastButtonPresses[streamIndex] < 100) {
+                return;
+            }
+            
+            this.lastButtonPresses[streamIndex] = currentTime;
+            
+            console.log(`🎮 Button ${buttonNumber} pressed -> Stream ${streamIndex + 1}`);
+            this.stopSprite(streamIndex);
+        }
+    }
+
+    handleMicrobitButtonRelease(buttonNumber) {
+        // No action needed on release for this game
     }
     
     startGame() {
@@ -123,6 +149,12 @@ class StreamStopGame {
         
         // Reset spawn timers
         this.streamLastSpawn = [0, 0, 0, 0];
+        this.lastButtonPresses = [0, 0, 0, 0];
+        
+        // Update platform score
+        this.platform.updateScore(this.score);
+        
+        console.log('StreamStop game started!');
     }
     
     stopSprite(streamIndex) {
@@ -134,6 +166,8 @@ class StreamStopGame {
         // Prevent rapid fire (minimum 100ms between stops)
         if (currentTime - stream.lastStop < 100) return;
         stream.lastStop = currentTime;
+        
+        console.log(`Attempting to stop sprite in stream ${streamIndex + 1}`);
         
         // Find the sprite closest to the target zone
         let closestSprite = null;
@@ -151,6 +185,8 @@ class StreamStopGame {
         }
         
         if (closestSprite) {
+            console.log(`Found sprite at distance ${closestDistance} from target`);
+            
             // Remove the sprite
             stream.sprites.splice(closestIndex, 1);
             
@@ -177,6 +213,8 @@ class StreamStopGame {
                 this.totalHits++;
                 this.platform.updateScore(this.score);
                 
+                console.log(`HIT! Points: ${points}, Total score: ${this.score}, Combo: ${this.combo}`);
+                
                 // Visual feedback
                 this.addHitFeedback(stream.x, closestSprite.y, points, accuracy);
                 this.addHitParticles(stream.x, closestSprite.y);
@@ -185,6 +223,7 @@ class StreamStopGame {
                 // Miss - too far from target
                 this.combo = 0;
                 this.totalMisses++;
+                console.log(`MISS! Distance: ${closestDistance}, Max allowed: ${maxDistance}`);
                 this.addMissFeedback(stream.x, closestSprite.y);
                 this.addMissParticles(stream.x, closestSprite.y);
             }
@@ -192,6 +231,7 @@ class StreamStopGame {
             // No sprite to stop
             this.combo = 0;
             this.totalMisses++;
+            console.log(`No sprite found in stream ${streamIndex + 1}`);
         }
     }
     
@@ -297,6 +337,7 @@ class StreamStopGame {
                     });
                     
                     this.streamLastSpawn[index] = currentTime;
+                    console.log(`Spawned sprite in stream ${index + 1}`);
                 }
             });
             
@@ -365,7 +406,7 @@ class StreamStopGame {
             this.ctx.font = `${Math.max(16, 20 * this.scaleY)}px Arial`;
             this.ctx.fillText('Stop falling sprites in the target zone!', this.canvas.width / 2, this.canvas.height / 2 - 50 * this.scaleY);
             
-            // Show controls
+            // Show controls - simplified for button mapping
             this.ctx.font = `${Math.max(14, 18 * this.scaleY)}px Arial`;
             this.ctx.fillStyle = '#ffff00';
             const keyY = this.canvas.height / 2 - 10 * this.scaleY;
@@ -373,17 +414,17 @@ class StreamStopGame {
             
             for (let i = 0; i < this.numStreams; i++) {
                 const x = (i + 0.5) * spacing;
-                this.ctx.fillText(`${this.streamKeys[i][0].toUpperCase()}/${this.streamKeys[i][1].toUpperCase()}`, x, keyY);
+                this.ctx.fillText(`${this.streamKeys[i].toUpperCase()}`, x, keyY);
             }
             
             this.ctx.fillStyle = '#fff';
             this.ctx.font = `${Math.max(16, 20 * this.scaleY)}px Arial`;
-            this.ctx.fillText('Fewer sprites = More strategic timing!', this.canvas.width / 2, this.canvas.height / 2 + 30 * this.scaleY);
+            this.ctx.fillText('🎮 Use Arcade Buttons 1-4 or A/S/D/F keys', this.canvas.width / 2, this.canvas.height / 2 + 30 * this.scaleY);
             this.ctx.fillText('Build combos for score multipliers!', this.canvas.width / 2, this.canvas.height / 2 + 50 * this.scaleY);
             
             this.ctx.fillStyle = '#ffff00';
             this.ctx.font = `bold ${Math.max(18, 24 * this.scaleY)}px Arial`;
-            this.ctx.fillText('Press SPACEBAR to start', this.canvas.width / 2, this.canvas.height / 2 + 90 * this.scaleY);
+            this.ctx.fillText('Press SPACEBAR or any button to start', this.canvas.width / 2, this.canvas.height / 2 + 90 * this.scaleY);
             
             // Draw sample target zone
             this.drawTargetZones();
@@ -404,13 +445,13 @@ class StreamStopGame {
         // Draw target zones
         this.drawTargetZones();
         
-        // Draw stream labels
+        // Draw stream labels with button numbers
         this.ctx.fillStyle = '#fff';
         this.ctx.font = `${Math.max(14, 18 * this.scaleY)}px Arial`;
         this.ctx.textAlign = 'center';
         for (let i = 0; i < this.numStreams; i++) {
             const x = (i + 0.5) * this.streamWidth;
-            this.ctx.fillText(`${this.streamKeys[i][0].toUpperCase()}/${this.streamKeys[i][1].toUpperCase()}`, x, 25 * this.scaleY);
+            this.ctx.fillText(`🎮${i + 1} ${this.streamKeys[i].toUpperCase()}`, x, 25 * this.scaleY);
         }
         
         // Draw sprites
