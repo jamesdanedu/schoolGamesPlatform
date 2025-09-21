@@ -409,13 +409,6 @@ class RhythmTimerGame {
     gameOver() {
         // This method is kept for compatibility but now calls endGame
         this.endGame();
-        
-        // Only trigger platform game over after a delay, giving chance to restart
-        setTimeout(() => {
-            if (this.gameOver) { // Only if still in game over state (not restarted)
-                this.platform.gameOver(this.score);
-            }
-        }, 5000); // 5 second delay before going to menu
     }
 
     gameLoop() {
