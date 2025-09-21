@@ -10,17 +10,52 @@ class StreamStopGame {
         this.scaleX = canvas.width / 800;
         this.scaleY = canvas.height / 600;
         
-        // Game configuration
-        this.numStreams = 4;
+        // Game mode selection
+        this.gameMode = null; // Will be set when player selects mode
+        this.modeSelected = false;
+        this.availableModes = [
+            { players: 1, name: "1-Player Mode", description: "Slow & steady", color: "#4CAF50" },
+            { players: 2, name: "2-Player Mode", description: "Medium speed", color: "#FF9800" }, 
+            { players: 4, name: "4-Player Mode", description: "Fast & furious!", color: "#F44336" }
+        ];
+        this.selectedModeIndex = 0;
+        
+        // Game configuration (will be set based on mode)
+        this.numStreams = 4; // Always 4 streams, but different speeds
         this.streamWidth = this.canvas.width / this.numStreams;
         this.spriteSize = 25 * Math.min(this.scaleX, this.scaleY);
-        this.spriteSpeed = 2 * this.scaleY;
         
-        // MUCH lower spawn rate - starts very low and gradually increases
-        this.baseSpawnRate = 0.003; // Very low starting spawn rate
-        this.maxSpawnRate = 0.008; // Maximum spawn rate (still much lower than before)
-        this.spawnRateIncrease = 0.0001; // Gradual increase per second
-        this.currentSpawnRate = this.baseSpawnRate;
+        // Speed and spawn rate configurations per mode
+        this.modeConfigs = {
+            1: {
+                baseSpriteSpeed: 1.0 * this.scaleY,   // Slow base speed
+                maxSpriteSpeed: 2.5 * this.scaleY,    // Slower max speed
+                baseSpawnRate: 0.002,                  // Lower spawn rate
+                maxSpawnRate: 0.005,                   // Lower max spawn rate
+                speedIncreaseRate: 0.0008,             // Gradual speed increase
+                activeStreams: [1]                     // Only use stream 2 (middle-left)
+            },
+            2: {
+                baseSpriteSpeed: 1.5 * this.scaleY,   // Medium base speed
+                maxSpriteSpeed: 3.5 * this.scaleY,    // Medium max speed  
+                baseSpawnRate: 0.004,                  // Medium spawn rate
+                maxSpawnRate: 0.008,                   // Medium max spawn rate
+                speedIncreaseRate: 0.001,              // Medium speed increase
+                activeStreams: [0, 2]                  // Use streams 1 and 3 (left and right sides)
+            },
+            4: {
+                baseSpriteSpeed: 2.0 * this.scaleY,   // Fast base speed
+                maxSpriteSpeed: 5.0 * this.scaleY,    // Very fast max speed
+                baseSpawnRate: 0.006,                  // High spawn rate
+                maxSpawnRate: 0.015,                   // High max spawn rate  
+                speedIncreaseRate: 0.0015,             // Rapid speed increase
+                activeStreams: [0, 1, 2, 3]           // Use all 4 streams
+            }
+        };
+        
+        // Current game settings (will be set when mode is selected)
+        this.spriteSpeed = 2 * this.scaleY;
+        this.currentSpawnRate = 0.003;
         
         // Minimum time between spawns in the same stream
         this.minSpawnInterval = 2000; // 2 seconds minimum between sprites in same stream
@@ -62,7 +97,30 @@ class StreamStopGame {
         this.gameLoop = this.gameLoop.bind(this);
         this.gameLoop();
         
-        console.log('StreamStop initialized with button mapping: 1→A, 2→S, 3→D, 4→F');
+        console.log('StreamStop initialized - select game mode to begin');
+    }
+
+    selectGameMode(modeIndex) {
+        if (modeIndex >= 0 && modeIndex < this.availableModes.length) {
+            this.gameMode = this.availableModes[modeIndex];
+            this.modeSelected = true;
+            
+            // Apply mode configuration
+            const config = this.modeConfigs[this.gameMode.players];
+            this.baseSpriteSpeed = config.baseSpriteSpeed;
+            this.maxSpriteSpeed = config.maxSpriteSpeed;
+            this.baseSpawnRate = config.baseSpawnRate;
+            this.maxSpawnRate = config.maxSpawnRate;
+            this.speedIncreaseRate = config.speedIncreaseRate;
+            this.activeStreams = config.activeStreams;
+            
+            // Set initial values
+            this.spriteSpeed = this.baseSpriteSpeed;
+            this.currentSpawnRate = this.baseSpawnRate;
+            
+            console.log(`Selected ${this.gameMode.name} - Active streams: ${this.activeStreams.map(i => i + 1).join(', ')}`);
+            console.log(`Speed range: ${this.baseSpriteSpeed.toFixed(1)} - ${this.maxSpriteSpeed.toFixed(1)}`);
+        }
     }
     
     initializeStreams() {
@@ -80,20 +138,54 @@ class StreamStopGame {
         const key = e.key.toLowerCase();
         this.keys[key] = true;
         
-        if (!this.gameStarted) {
-            if (key === ' ' || key === 'spacebar') {
-                this.startGame();
+        // Mode selection screen
+        if (!this.modeSelected) {
+            if (key === 'arrowup' || key === 'w') {
+                this.selectedModeIndex = Math.max(0, this.selectedModeIndex - 1);
+                return;
+            }
+            if (key === 'arrowdown' || key === 's') {
+                this.selectedModeIndex = Math.min(this.availableModes.length - 1, this.selectedModeIndex + 1);
+                return;
+            }
+            if (key === ' ' || key === 'spacebar' || key === 'enter') {
+                this.selectGameMode(this.selectedModeIndex);
+                return;
+            }
+            // Number keys for quick selection
+            if (key >= '1' && key <= '4') {
+                const modeIndex = parseInt(key) - 1;
+                if (modeIndex < this.availableModes.length) {
+                    this.selectedModeIndex = modeIndex;
+                    this.selectGameMode(modeIndex);
+                }
                 return;
             }
         }
         
-        // Find which stream this key corresponds to
-        const streamIndex = this.streamKeys.indexOf(key);
-        if (streamIndex !== -1) {
-            if (!this.keyPressed[key]) {
-                console.log(`Key ${key.toUpperCase()} pressed -> Stream ${streamIndex + 1}`);
-                this.stopSprite(streamIndex);
-                this.keyPressed[key] = true;
+        // Game start screen
+        if (!this.gameStarted && this.modeSelected) {
+            if (key === ' ' || key === 'spacebar') {
+                this.startGame();
+                return;
+            }
+            // Allow going back to mode selection
+            if (key === 'escape' || key === 'backspace') {
+                this.modeSelected = false;
+                this.gameMode = null;
+                return;
+            }
+        }
+        
+        // In-game controls - only for active streams
+        if (this.gameStarted && this.running) {
+            const streamIndex = this.streamKeys.indexOf(key);
+            if (streamIndex !== -1 && this.activeStreams.includes(streamIndex)) {
+                if (!this.keyPressed[key]) {
+                    console.log(`Key ${key.toUpperCase()} pressed -> Stream ${streamIndex + 1}`);
+                    this.stopSprite(streamIndex);
+                    this.keyPressed[key] = true;
+                }
             }
         }
     }
@@ -106,26 +198,38 @@ class StreamStopGame {
 
     // Add Microbit button support with direct mapping
     handleMicrobitButtonPress(buttonNumber) {
-        if (!this.gameStarted) {
+        // Mode selection with buttons
+        if (!this.modeSelected) {
+            if (buttonNumber >= 1 && buttonNumber <= this.availableModes.length) {
+                this.selectedModeIndex = buttonNumber - 1;
+                this.selectGameMode(this.selectedModeIndex);
+            }
+            return;
+        }
+        
+        // Game start
+        if (!this.gameStarted && this.modeSelected) {
             this.startGame();
             return;
         }
 
-        // Direct mapping: Button 1→Stream 0, Button 2→Stream 1, etc.
-        const streamIndex = buttonNumber - 1;
-        
-        if (streamIndex >= 0 && streamIndex < this.numStreams) {
-            const currentTime = Date.now();
+        // In-game controls - only for active streams
+        if (this.gameStarted && this.running) {
+            const streamIndex = buttonNumber - 1;
             
-            // Prevent button spam (minimum 100ms between presses)
-            if (currentTime - this.lastButtonPresses[streamIndex] < 100) {
-                return;
+            if (streamIndex >= 0 && streamIndex < this.numStreams && this.activeStreams.includes(streamIndex)) {
+                const currentTime = Date.now();
+                
+                // Prevent button spam (minimum 100ms between presses)
+                if (currentTime - this.lastButtonPresses[streamIndex] < 100) {
+                    return;
+                }
+                
+                this.lastButtonPresses[streamIndex] = currentTime;
+                
+                console.log(`🎮 Button ${buttonNumber} pressed -> Stream ${streamIndex + 1}`);
+                this.stopSprite(streamIndex);
             }
-            
-            this.lastButtonPresses[streamIndex] = currentTime;
-            
-            console.log(`🎮 Button ${buttonNumber} pressed -> Stream ${streamIndex + 1}`);
-            this.stopSprite(streamIndex);
         }
     }
 
@@ -134,12 +238,17 @@ class StreamStopGame {
     }
     
     startGame() {
+        if (!this.modeSelected) return;
+        
         this.gameStarted = true;
         this.startTime = Date.now();
         this.score = 0;
         this.combo = 0;
         this.totalHits = 0;
         this.totalMisses = 0;
+        
+        // Reset speed and spawn rate to base values for selected mode
+        this.spriteSpeed = this.baseSpriteSpeed;
         this.currentSpawnRate = this.baseSpawnRate;
         
         // Clear all streams
@@ -154,11 +263,17 @@ class StreamStopGame {
         // Update platform score
         this.platform.updateScore(this.score);
         
-        console.log('StreamStop game started!');
+        console.log(`${this.gameMode.name} started! Active streams: ${this.activeStreams.map(i => i + 1).join(', ')}`);
     }
     
     stopSprite(streamIndex) {
         if (!this.gameStarted || !this.running) return;
+        
+        // Only allow stopping sprites in active streams
+        if (!this.activeStreams.includes(streamIndex)) {
+            console.log(`Stream ${streamIndex + 1} is not active in ${this.gameMode.name}`);
+            return;
+        }
         
         const stream = this.streams[streamIndex];
         const currentTime = Date.now();
@@ -204,16 +319,26 @@ class StreamStopGame {
                 if (accuracy > 0.9) points += 50;
                 if (accuracy === 1) points += 100;
                 
+                // Mode-based score multipliers
+                let modeMultiplier = 1;
+                switch(this.gameMode.players) {
+                    case 1: modeMultiplier = 1.0; break;   // 1-player: base scoring
+                    case 2: modeMultiplier = 1.5; break;   // 2-player: 50% bonus
+                    case 4: modeMultiplier = 2.0; break;   // 4-player: 100% bonus
+                }
+                
                 // Combo multiplier
                 this.combo++;
                 this.maxCombo = Math.max(this.maxCombo, this.combo);
-                points *= Math.min(this.combo, 10); // Max 10x multiplier
+                const comboMultiplier = Math.min(this.combo, 10); // Max 10x multiplier
+                
+                points = Math.round(points * modeMultiplier * comboMultiplier);
                 
                 this.score += points;
                 this.totalHits++;
                 this.platform.updateScore(this.score);
                 
-                console.log(`HIT! Points: ${points}, Total score: ${this.score}, Combo: ${this.combo}`);
+                console.log(`HIT! Points: ${points} (${modeMultiplier}x mode, ${comboMultiplier}x combo), Total: ${this.score}`);
                 
                 // Visual feedback
                 this.addHitFeedback(stream.x, closestSprite.y, points, accuracy);
@@ -316,15 +441,22 @@ class StreamStopGame {
                 return;
             }
             
-            // Gradually increase spawn rate over time
+            // Gradually increase speed and spawn rate over time
             const timeProgress = this.gameTime / this.gameDuration;
+            
+            // Increase sprite speed over time
+            this.spriteSpeed = this.baseSpriteSpeed + (this.maxSpriteSpeed - this.baseSpriteSpeed) * timeProgress;
+            
+            // Increase spawn rate over time
             this.currentSpawnRate = this.baseSpawnRate + (this.maxSpawnRate - this.baseSpawnRate) * timeProgress;
             
-            // Spawn new sprites with improved logic
+            // Spawn new sprites - only in active streams
             const currentTime = Date.now();
-            this.streams.forEach((stream, index) => {
+            this.activeStreams.forEach(streamIndex => {
+                const stream = this.streams[streamIndex];
+                
                 // Check if enough time has passed since last spawn in this stream
-                const timeSinceLastSpawn = currentTime - this.streamLastSpawn[index];
+                const timeSinceLastSpawn = currentTime - this.streamLastSpawn[streamIndex];
                 
                 if (timeSinceLastSpawn >= this.minSpawnInterval && 
                     Math.random() < this.currentSpawnRate && 
@@ -333,31 +465,35 @@ class StreamStopGame {
                     stream.sprites.push({
                         y: -this.spriteSize,
                         color: this.getRandomSpriteColor(),
-                        id: Date.now() + Math.random()
+                        id: Date.now() + Math.random(),
+                        speed: this.spriteSpeed + (Math.random() - 0.5) * this.spriteSpeed * 0.2 // ±20% speed variation
                     });
                     
-                    this.streamLastSpawn[index] = currentTime;
-                    console.log(`Spawned sprite in stream ${index + 1}`);
+                    this.streamLastSpawn[streamIndex] = currentTime;
+                    console.log(`Spawned sprite in stream ${streamIndex + 1} at speed ${this.spriteSpeed.toFixed(1)}`);
                 }
             });
             
-            // Update sprites
-            this.streams.forEach(stream => {
+            // Update sprites in all streams
+            this.streams.forEach((stream, streamIndex) => {
                 for (let i = stream.sprites.length - 1; i >= 0; i--) {
                     const sprite = stream.sprites[i];
-                    sprite.y += this.spriteSpeed;
+                    // Use individual sprite speed if available, otherwise use global speed
+                    sprite.y += sprite.speed || this.spriteSpeed;
                     
                     // Remove sprites that have gone off screen
                     if (sprite.y > this.canvas.height + this.spriteSize) {
                         stream.sprites.splice(i, 1);
-                        // Small penalty for letting sprites pass
-                        this.combo = Math.max(0, this.combo - 1);
+                        // Small penalty for letting sprites pass (only in active streams)
+                        if (this.activeStreams.includes(streamIndex)) {
+                            this.combo = Math.max(0, this.combo - 1);
+                        }
                     }
                 }
             });
         }
         
-        // Update particles
+        // Update particles and feedback (existing code)
         for (let i = this.particles.length - 1; i >= 0; i--) {
             const particle = this.particles[i];
             particle.x += particle.vx;
@@ -396,41 +532,85 @@ class StreamStopGame {
         this.ctx.fillStyle = gradient;
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         
-        if (!this.gameStarted) {
-            // Start screen
+        // Mode selection screen
+        if (!this.modeSelected) {
             this.ctx.fillStyle = '#fff';
             this.ctx.font = `bold ${Math.max(36, 48 * this.scaleY)}px Arial`;
             this.ctx.textAlign = 'center';
-            this.ctx.fillText('Stream Stop', this.canvas.width / 2, this.canvas.height / 2 - 100 * this.scaleY);
+            this.ctx.fillText('Stream Stop', this.canvas.width / 2, this.canvas.height / 2 - 120 * this.scaleY);
             
             this.ctx.font = `${Math.max(16, 20 * this.scaleY)}px Arial`;
-            this.ctx.fillText('Stop falling sprites in the target zone!', this.canvas.width / 2, this.canvas.height / 2 - 50 * this.scaleY);
+            this.ctx.fillText('Select Game Mode:', this.canvas.width / 2, this.canvas.height / 2 - 60 * this.scaleY);
             
-            // Show controls - simplified for button mapping
-            this.ctx.font = `${Math.max(14, 18 * this.scaleY)}px Arial`;
+            // Draw mode options
+            this.availableModes.forEach((mode, index) => {
+                const y = this.canvas.height / 2 + (index - 1) * 50 * this.scaleY;
+                const isSelected = index === this.selectedModeIndex;
+                
+                // Background for selected mode
+                if (isSelected) {
+                    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                    this.ctx.fillRect(this.canvas.width / 2 - 200 * this.scaleX, y - 20 * this.scaleY, 
+                                    400 * this.scaleX, 40 * this.scaleY);
+                }
+                
+                // Mode text
+                this.ctx.fillStyle = isSelected ? mode.color : '#fff';
+                this.ctx.font = `bold ${Math.max(20, 24 * this.scaleY)}px Arial`;
+                this.ctx.fillText(`${index + 1}. ${mode.name}`, this.canvas.width / 2, y);
+                
+                this.ctx.fillStyle = isSelected ? '#ffff00' : '#ccc';
+                this.ctx.font = `${Math.max(14, 16 * this.scaleY)}px Arial`;
+                this.ctx.fillText(mode.description, this.canvas.width / 2, y + 20 * this.scaleY);
+            });
+            
+            // Instructions
             this.ctx.fillStyle = '#ffff00';
-            const keyY = this.canvas.height / 2 - 10 * this.scaleY;
-            const spacing = this.streamWidth;
+            this.ctx.font = `${Math.max(16, 18 * this.scaleY)}px Arial`;
+            this.ctx.fillText('🎮 Press button 1-3 or ↑/↓ + Enter/Spacebar', this.canvas.width / 2, this.canvas.height / 2 + 120 * this.scaleY);
             
-            for (let i = 0; i < this.numStreams; i++) {
-                const x = (i + 0.5) * spacing;
-                this.ctx.fillText(`${this.streamKeys[i].toUpperCase()}`, x, keyY);
-            }
+            return;
+        }
+        
+        // Game start screen
+        if (!this.gameStarted) {
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = `bold ${Math.max(32, 42 * this.scaleY)}px Arial`;
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText(this.gameMode.name, this.canvas.width / 2, this.canvas.height / 2 - 100 * this.scaleY);
             
+            this.ctx.fillStyle = this.gameMode.color;
+            this.ctx.font = `${Math.max(18, 22 * this.scaleY)}px Arial`;
+            this.ctx.fillText(this.gameMode.description, this.canvas.width / 2, this.canvas.height / 2 - 60 * this.scaleY);
+            
+            // Show active streams
             this.ctx.fillStyle = '#fff';
             this.ctx.font = `${Math.max(16, 20 * this.scaleY)}px Arial`;
-            this.ctx.fillText('🎮 Use Arcade Buttons 1-4 or A/S/D/F keys', this.canvas.width / 2, this.canvas.height / 2 + 30 * this.scaleY);
-            this.ctx.fillText('Build combos for score multipliers!', this.canvas.width / 2, this.canvas.height / 2 + 50 * this.scaleY);
+            const activeStreamText = `Active Streams: ${this.activeStreams.map(i => i + 1).join(', ')}`;
+            this.ctx.fillText(activeStreamText, this.canvas.width / 2, this.canvas.height / 2 - 20 * this.scaleY);
+            
+            // Speed info
+            this.ctx.fillText(`Speed: ${this.baseSpriteSpeed.toFixed(1)} → ${this.maxSpriteSpeed.toFixed(1)}`, 
+                             this.canvas.width / 2, this.canvas.height / 2 + 10 * this.scaleY);
             
             this.ctx.fillStyle = '#ffff00';
             this.ctx.font = `bold ${Math.max(18, 24 * this.scaleY)}px Arial`;
-            this.ctx.fillText('Press SPACEBAR or any button to start', this.canvas.width / 2, this.canvas.height / 2 + 90 * this.scaleY);
+            this.ctx.fillText('Press SPACEBAR or any button to start', this.canvas.width / 2, this.canvas.height / 2 + 60 * this.scaleY);
             
-            // Draw sample target zone
+            this.ctx.fillStyle = '#ccc';
+            this.ctx.font = `${Math.max(12, 14 * this.scaleY)}px Arial`;
+            this.ctx.fillText('Press ESC to change mode', this.canvas.width / 2, this.canvas.height / 2 + 90 * this.scaleY);
+            
+            // Draw target zones for active streams only
             this.drawTargetZones();
             return;
         }
         
+        // In-game drawing
+        this.drawGameplay();
+    }
+    
+    drawGameplay() {
         // Draw stream dividers
         this.ctx.strokeStyle = '#333';
         this.ctx.lineWidth = 2;
@@ -445,31 +625,41 @@ class StreamStopGame {
         // Draw target zones
         this.drawTargetZones();
         
-        // Draw stream labels with button numbers
-        this.ctx.fillStyle = '#fff';
+        // Draw stream labels - highlight active streams
         this.ctx.font = `${Math.max(14, 18 * this.scaleY)}px Arial`;
         this.ctx.textAlign = 'center';
         for (let i = 0; i < this.numStreams; i++) {
             const x = (i + 0.5) * this.streamWidth;
-            this.ctx.fillText(`🎮${i + 1} ${this.streamKeys[i].toUpperCase()}`, x, 25 * this.scaleY);
+            const isActive = this.activeStreams.includes(i);
+            
+            this.ctx.fillStyle = isActive ? '#fff' : '#666';
+            const text = `🎮${i + 1} ${this.streamKeys[i].toUpperCase()}`;
+            this.ctx.fillText(text, x, 25 * this.scaleY);
+            
+            if (!isActive) {
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                this.ctx.fillRect(i * this.streamWidth, 0, this.streamWidth, this.canvas.height);
+            }
         }
         
         // Draw sprites
-        this.streams.forEach(stream => {
-            stream.sprites.forEach(sprite => {
-                this.ctx.fillStyle = sprite.color;
-                this.ctx.beginPath();
-                this.ctx.arc(stream.x, sprite.y, this.spriteSize, 0, Math.PI * 2);
-                this.ctx.fill();
-                
-                // Sprite outline
-                this.ctx.strokeStyle = '#fff';
-                this.ctx.lineWidth = 2;
-                this.ctx.stroke();
-            });
+        this.streams.forEach((stream, streamIndex) => {
+            if (this.activeStreams.includes(streamIndex)) {
+                stream.sprites.forEach(sprite => {
+                    this.ctx.fillStyle = sprite.color;
+                    this.ctx.beginPath();
+                    this.ctx.arc(stream.x, sprite.y, this.spriteSize, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    
+                    // Sprite outline
+                    this.ctx.strokeStyle = '#fff';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.stroke();
+                });
+            }
         });
         
-        // Draw particles
+        // Draw particles and feedback (existing code)
         this.particles.forEach(particle => {
             const alpha = Math.floor(particle.life * 255).toString(16).padStart(2, '0');
             this.ctx.fillStyle = particle.color + alpha;
@@ -478,7 +668,6 @@ class StreamStopGame {
             this.ctx.fill();
         });
         
-        // Draw feedback texts
         this.feedbackTexts.forEach(feedback => {
             const alpha = feedback.life;
             this.ctx.fillStyle = feedback.color;
@@ -496,17 +685,19 @@ class StreamStopGame {
         
         const margin = 10 * this.scaleX;
         const timeLeft = Math.max(0, this.gameDuration - this.gameTime) / 1000;
-        this.ctx.fillText(`Time: ${timeLeft.toFixed(1)}s`, margin, this.canvas.height - 80 * this.scaleY);
-        this.ctx.fillText(`Score: ${this.score}`, margin, this.canvas.height - 55 * this.scaleY);
-        this.ctx.fillText(`Combo: ${this.combo}`, margin, this.canvas.height - 30 * this.scaleY);
+        this.ctx.fillText(`Time: ${timeLeft.toFixed(1)}s`, margin, this.canvas.height - 105 * this.scaleY);
+        this.ctx.fillText(`Score: ${this.score}`, margin, this.canvas.height - 80 * this.scaleY);
+        this.ctx.fillText(`Combo: ${this.combo}`, margin, this.canvas.height - 55 * this.scaleY);
+        this.ctx.fillText(`Speed: ${this.spriteSpeed.toFixed(1)}`, margin, this.canvas.height - 30 * this.scaleY);
         
-        // Difficulty indicator
-        const difficultyPercent = ((this.currentSpawnRate - this.baseSpawnRate) / (this.maxSpawnRate - this.baseSpawnRate) * 100).toFixed(0);
-        this.ctx.fillText(`Difficulty: ${difficultyPercent}%`, margin, this.canvas.height - 105 * this.scaleY);
+        // Mode info
+        this.ctx.fillStyle = this.gameMode.color;
+        this.ctx.fillText(`Mode: ${this.gameMode.name}`, margin, this.canvas.height - 130 * this.scaleY);
         
         // Accuracy stats
         const accuracy = this.totalHits + this.totalMisses > 0 ? 
             (this.totalHits / (this.totalHits + this.totalMisses) * 100).toFixed(1) : 0;
+        this.ctx.fillStyle = '#fff';
         this.ctx.textAlign = 'right';
         this.ctx.fillText(`Accuracy: ${accuracy}%`, this.canvas.width - margin, this.canvas.height - 55 * this.scaleY);
         this.ctx.fillText(`Max Combo: ${this.maxCombo}`, this.canvas.width - margin, this.canvas.height - 30 * this.scaleY);
@@ -526,28 +717,32 @@ class StreamStopGame {
             this.ctx.fillText(`Final Score: ${this.score}`, this.canvas.width / 2, this.canvas.height / 2 - 30 * this.scaleY);
             
             this.ctx.font = `${Math.max(18, 22 * this.scaleY)}px Arial`;
+            this.ctx.fillStyle = this.gameMode.color;
+            this.ctx.fillText(`${this.gameMode.name} Complete!`, this.canvas.width / 2, this.canvas.height / 2);
+            
             this.ctx.fillStyle = '#fff';
-            this.ctx.fillText(`Hits: ${this.totalHits} | Misses: ${this.totalMisses}`, this.canvas.width / 2, this.canvas.height / 2 + 10 * this.scaleY);
-            this.ctx.fillText(`Accuracy: ${accuracy}%`, this.canvas.width / 2, this.canvas.height / 2 + 40 * this.scaleY);
-            this.ctx.fillText(`Max Combo: ${this.maxCombo}`, this.canvas.width / 2, this.canvas.height / 2 + 70 * this.scaleY);
+            this.ctx.fillText(`Hits: ${this.totalHits} | Misses: ${this.totalMisses}`, this.canvas.width / 2, this.canvas.height / 2 + 30 * this.scaleY);
+            this.ctx.fillText(`Accuracy: ${accuracy}%`, this.canvas.width / 2, this.canvas.height / 2 + 55 * this.scaleY);
+            this.ctx.fillText(`Max Combo: ${this.maxCombo}`, this.canvas.width / 2, this.canvas.height / 2 + 80 * this.scaleY);
         }
     }
     
     drawTargetZones() {
         for (let i = 0; i < this.numStreams; i++) {
             const x = i * this.streamWidth;
+            const isActive = !this.modeSelected || this.activeStreams.includes(i);
             
             // Target zone background
-            this.ctx.fillStyle = 'rgba(255, 255, 0, 0.2)';
+            this.ctx.fillStyle = isActive ? 'rgba(255, 255, 0, 0.2)' : 'rgba(100, 100, 100, 0.1)';
             this.ctx.fillRect(x, this.targetZoneY, this.streamWidth, this.targetHeight);
             
             // Target zone border
-            this.ctx.strokeStyle = '#ffff00';
-            this.ctx.lineWidth = 3;
+            this.ctx.strokeStyle = isActive ? '#ffff00' : '#666';
+            this.ctx.lineWidth = isActive ? 3 : 1;
             this.ctx.strokeRect(x, this.targetZoneY, this.streamWidth, this.targetHeight);
             
             // Center line
-            this.ctx.strokeStyle = '#ffff00';
+            this.ctx.strokeStyle = isActive ? '#ffff00' : '#666';
             this.ctx.lineWidth = 2;
             this.ctx.setLineDash([5, 5]);
             this.ctx.beginPath();
