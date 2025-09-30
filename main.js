@@ -66,6 +66,33 @@ function initializeMicrobitController() {
       });
     });
 
+    // ========================================
+    // BIKE SENSOR EVENT LISTENERS (NEW)
+    // ========================================
+
+    microbitController.on('bike-sensor-ready', (data) => {
+      console.log(`🚴‍♂️ Bike sensor ready: ${data.message}`);
+      mainWindow.webContents.send('bike-sensor-status', {
+        status: 'connected',
+        message: data.message,
+        port: data.port
+      });
+    });
+
+    microbitController.on('bike-data', (data) => {
+      // Forward bike sensor data to renderer process for the game
+      console.log(`🚴‍♂️ Bike data: Rev ${data.revolutions}, RPM ${data.rpm}`);
+      mainWindow.webContents.send('bike-sensor-data', data);
+    });
+
+    microbitController.on('bike-sensor-disconnected', (data) => {
+      console.log(`⚠️ Bike sensor disconnected: ${data.port}`);
+      mainWindow.webContents.send('bike-sensor-status', {
+        status: 'disconnected',
+        port: data.port
+      });
+    });
+
     // Start test mode for debugging
     microbitController.startTestMode();
 
@@ -81,13 +108,16 @@ function initializeMicrobitController() {
 // Basic Microbit handlers
 ipcMain.handle('get-microbit-status', async () => {
   if (microbitController) {
+    const status = microbitController.getConnectionStatus();
     return { 
-      connected: true,
+      connected: status.buttonConnections > 0,
       buttonStates: microbitController.getButtonStates(),
-      connectionCount: microbitController.connections.size
+      connectionCount: status.buttonConnections,
+      bikeConnected: status.bikeConnected,
+      bikeData: status.bikeData
     };
   }
-  return { connected: false };
+  return { connected: false, bikeConnected: false };
 });
 
 ipcMain.handle('get-button-states', async () => {
@@ -109,6 +139,104 @@ ipcMain.handle('restart-microbit-controller', async () => {
     return { success: false, error: error.message };
   }
 });
+
+// ========================================
+// BIKE SENSOR IPC HANDLERS (NEW)
+// ========================================
+
+ipcMain.handle('get-bike-sensor-status', async () => {
+  if (microbitController) {
+    return {
+      connected: microbitController.isBikeSensorConnected(),
+      data: microbitController.getBikeData()
+    };
+  }
+  return { connected: false, data: null };
+});
+
+ipcMain.handle('get-bike-data', async () => {
+  return microbitController ? microbitController.getBikeData() : null;
+});
+
+ipcMain.handle('reset-bike-counter', async () => {
+  try {
+    if (microbitController) {
+      const result = await microbitController.resetBikeCounter();
+      return { success: result };
+    }
+    return { success: false, error: 'Microbit controller not available' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('set-bike-game-mode', async (event, active) => {
+  try {
+    if (microbitController) {
+      const result = await microbitController.setBikeGameMode(active);
+      return { success: result };
+    }
+    return { success: false, error: 'Microbit controller not available' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// ========================================
+// BIKE-SPECIFIC LED PATTERNS (NEW)
+// ========================================
+
+ipcMain.handle('bike-start-pattern', async () => {
+  try {
+    if (microbitController) {
+      await microbitController.bikeStartPattern();
+      return { success: true };
+    }
+    return { success: false, error: 'Microbit controller not available' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('bike-milestone-pattern', async (event, milestone) => {
+  try {
+    if (microbitController) {
+      await microbitController.bikeMilestonePattern(milestone);
+      return { success: true };
+    }
+    return { success: false, error: 'Microbit controller not available' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('bike-victory-pattern', async () => {
+  try {
+    if (microbitController) {
+      await microbitController.bikeVictoryPattern();
+      return { success: true };
+    }
+    return { success: false, error: 'Microbit controller not available' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('bike-speed-feedback', async (event, rpm) => {
+  try {
+    if (microbitController) {
+      await microbitController.bikeSpeedFeedback(rpm);
+      return { success: true };
+    }
+    return { success: false, error: 'Microbit controller not available' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// ========================================
+// EXISTING LED CONTROL IPC HANDLERS
+// ========================================
 
 // Basic LED Control IPC Handlers
 ipcMain.handle('set-led', async (event, buttonNumber, state) => {
