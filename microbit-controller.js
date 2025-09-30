@@ -1,4 +1,4 @@
-// microbit-controller.js for 4 separate Microbits
+// microbit-controller.js - Enhanced for HW-484 Hall Sensor Support
 
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
@@ -7,17 +7,26 @@ const { EventEmitter } = require('events');
 class FourMicrobitController extends EventEmitter {
     constructor() {
         super();
-        this.connections = new Map(); // Maps port path to connection info
+        this.connections = new Map();
         this.buttonStates = [false, false, false, false];
         this.ledStates = [false, false, false, false];
         this.buttonColors = ["GREEN", "WHITE", "RED", "GREEN"];
         this.buttonPositions = ["LEFT", "MIDDLE-LEFT", "MIDDLE-RIGHT", "RIGHT"];
         
         // Track which Microbit is which button (1-4)
-        this.buttonMappings = new Map(); // Maps port path to button number
-        this.portToButton = new Map();   // Maps button number to port path
+        this.buttonMappings = new Map();
+        this.portToButton = new Map();
         
-        console.log('🎮 Initializing 4-Microbit Arcade Controller...');
+        // HW-484 Hall Sensor Support
+        this.bikePort = null; // Special port for the bike sensor
+        this.bikeData = {
+            revolutions: 0,
+            rpm: 0,
+            lastUpdateTime: 0,
+            isActive: false
+        };
+        
+        console.log('🎮 Initializing 4-Microbit Arcade Controller with Bike Sensor...');
         this.findAllMicrobits();
     }
 
@@ -45,14 +54,12 @@ class FourMicrobitController extends EventEmitter {
 
             if (microbitPorts.length === 0) {
                 console.log('❌ No Microbits detected. Check connections and drivers.');
-                console.log('💡 Make sure each Microbit is connected and has the button code loaded.');
                 return;
             }
 
             // Connect to each detected Microbit
             for (let i = 0; i < microbitPorts.length; i++) {
                 await this.connectToMicrobit(microbitPorts[i].path, i + 1);
-                // Small delay between connections
                 await this.delay(500);
             }
 
@@ -71,7 +78,6 @@ class FourMicrobitController extends EventEmitter {
                 autoOpen: false
             });
 
-            // Open the port
             await new Promise((resolve, reject) => {
                 port.open((err) => {
                     if (err) reject(err);
@@ -85,7 +91,8 @@ class FourMicrobitController extends EventEmitter {
             this.connections.set(portPath, { 
                 port, 
                 parser, 
-                buttonNumber: null, // Will be set when Microbit identifies itself
+                buttonNumber: null,
+                deviceType: 'unknown', // 'button' or 'bike'
                 connected: true,
                 lastActivity: Date.now()
             });
@@ -126,8 +133,19 @@ class FourMicrobitController extends EventEmitter {
 
         console.log(`📨 [${portPath}] ${message}`);
 
+        // HW-484 Bike Sensor Messages
+        if (message.startsWith('BIKE_REV:')) {
+            this.processBikeSensorData(portPath, message);
+            return;
+        }
+
+        if (message.includes('BIKE SENSOR READY') || message.includes('HW-484')) {
+            this.registerBikeSensor(portPath);
+            return;
+        }
+
+        // Arcade Button Messages (existing code)
         if (message.includes('BUTTON_') && message.includes('_READY')) {
-            // Your code: "BUTTON_1_GREEN_READY", "BUTTON_2_WHITE_READY", etc.
             const parts = message.split('_');
             if (parts.length >= 2) {
                 const buttonNumber = parseInt(parts[1]);
@@ -135,7 +153,6 @@ class FourMicrobitController extends EventEmitter {
             }
             
         } else if (message.includes('BUTTON_') && message.includes('_PRESSED')) {
-            // Your code: "BUTTON_1_PRESSED", "BUTTON_2_PRESSED", etc.
             const parts = message.split('_');
             if (parts.length >= 2) {
                 const buttonNumber = parseInt(parts[1]);
@@ -143,7 +160,6 @@ class FourMicrobitController extends EventEmitter {
             }
             
         } else if (message.includes('BUTTON_') && message.includes('_RELEASED')) {
-            // Your code: "BUTTON_1_RELEASED", "BUTTON_2_RELEASED", etc.
             const parts = message.split('_');
             if (parts.length >= 2) {
                 const buttonNumber = parseInt(parts[1]);
@@ -151,7 +167,6 @@ class FourMicrobitController extends EventEmitter {
             }
             
         } else if (message.includes('LED_') && message.includes('_CONFIRMED')) {
-            // Your code: "LED_1_ON_CONFIRMED", "LED_1_OFF_CONFIRMED", etc.
             const parts = message.split('_');
             if (parts.length >= 2) {
                 const buttonNumber = parseInt(parts[1]);
@@ -166,11 +181,48 @@ class FourMicrobitController extends EventEmitter {
                 console.log(`💡 LED ${buttonNumber} confirmed ${this.ledStates[buttonNumber - 1] ? 'ON' : 'OFF'}`);
                 this.emit('led-confirmed', { buttonId: buttonNumber, state: this.ledStates[buttonNumber - 1], port: portPath });
             }
+        }
+    }
+
+    registerBikeSensor(portPath) {
+        this.bikePort = portPath;
+        const connection = this.connections.get(portPath);
+        if (connection) {
+            connection.deviceType = 'bike';
+            console.log(`🚴‍♂️ Registered HW-484 Bike Sensor at ${portPath}`);
             
-        } else if (message.includes('PONG_')) {
-            // Your code: "PONG_1", "PONG_2", etc.
-            const buttonNumber = parseInt(message.split('_')[1]);
-            console.log(`🏓 Pong received from Button ${buttonNumber}`);
+            this.emit('bike-sensor-ready', {
+                port: portPath,
+                message: 'HW-484 Hall Sensor Ready'
+            });
+        }
+    }
+
+    processBikeSensorData(portPath, message) {
+        // Parse: "BIKE_REV:<count>:<rpm>:<time>"
+        const parts = message.split(':');
+        if (parts.length >= 4) {
+            const revolutions = parseInt(parts[1]);
+            const rpm = parseInt(parts[2]);
+            const timestamp = parseInt(parts[3]);
+            
+            // Update bike data
+            this.bikeData = {
+                revolutions: revolutions,
+                rpm: rpm,
+                lastUpdateTime: Date.now(),
+                isActive: rpm > 0
+            };
+            
+            console.log(`🚴‍♂️ Bike Data - Rev: ${revolutions}, RPM: ${rpm}`);
+            
+            // Emit bike data event for the game
+            this.emit('bike-data', {
+                revolutions: revolutions,
+                rpm: rpm,
+                timestamp: timestamp,
+                port: portPath
+            });
         }
     }
 
@@ -178,6 +230,12 @@ class FourMicrobitController extends EventEmitter {
         if (buttonNumber >= 1 && buttonNumber <= 4) {
             this.buttonMappings.set(portPath, buttonNumber);
             this.portToButton.set(buttonNumber, portPath);
+            
+            const connection = this.connections.get(portPath);
+            if (connection) {
+                connection.buttonNumber = buttonNumber;
+                connection.deviceType = 'button';
+            }
             
             console.log(`📍 Registered Button ${buttonNumber} at ${portPath}`);
             
@@ -193,15 +251,6 @@ class FourMicrobitController extends EventEmitter {
                 message: `Button ${buttonNumber} ready`
             });
         }
-    }
-
-    getNextAvailableButton() {
-        for (let i = 1; i <= 4; i++) {
-            if (!this.portToButton.has(i)) {
-                return i;
-            }
-        }
-        return null;
     }
 
     handleButtonPress(buttonNumber) {
@@ -241,19 +290,58 @@ class FourMicrobitController extends EventEmitter {
     handleDisconnection(portPath) {
         const connection = this.connections.get(portPath);
         if (connection) {
-            const buttonNumber = this.buttonMappings.get(portPath);
-            if (buttonNumber) {
-                console.log(`⚠️  Button ${buttonNumber} disconnected`);
-                this.buttonStates[buttonNumber - 1] = false;
-                this.portToButton.delete(buttonNumber);
+            if (connection.deviceType === 'bike' && this.bikePort === portPath) {
+                console.log(`⚠️  HW-484 Bike Sensor disconnected`);
+                this.bikePort = null;
+                this.bikeData.isActive = false;
+                this.emit('bike-sensor-disconnected', { port: portPath });
+                
+            } else if (connection.deviceType === 'button') {
+                const buttonNumber = this.buttonMappings.get(portPath);
+                if (buttonNumber) {
+                    console.log(`⚠️  Button ${buttonNumber} disconnected`);
+                    this.buttonStates[buttonNumber - 1] = false;
+                    this.portToButton.delete(buttonNumber);
+                }
+                this.buttonMappings.delete(portPath);
             }
             
-            this.buttonMappings.delete(portPath);
             this.connections.delete(portPath);
         }
     }
 
-    // LED Control Methods
+    // ========================================
+    // BIKE SENSOR SPECIFIC METHODS
+    // ========================================
+
+    getBikeData() {
+        return { ...this.bikeData };
+    }
+
+    isBikeSensorConnected() {
+        return this.bikePort !== null;
+    }
+
+    async resetBikeCounter() {
+        if (this.bikePort) {
+            // Send reset command to bike sensor Microbit
+            return this.sendCommand(this.bikePort, 'RESET_COUNTER');
+        }
+        return false;
+    }
+
+    async setBikeGameMode(active) {
+        if (this.bikePort) {
+            const command = active ? 'GAME_MODE_ON' : 'GAME_MODE_OFF';
+            return this.sendCommand(this.bikePort, command);
+        }
+        return false;
+    }
+
+    // ========================================
+    // LED CONTROL METHODS (Existing)
+    // ========================================
+
     async setLED(buttonNumber, state) {
         const portPath = this.portToButton.get(buttonNumber);
         
@@ -316,7 +404,214 @@ class FourMicrobitController extends EventEmitter {
         }
     }
 
-    // Utility Methods
+    // ========================================
+    // ENHANCED BIKE-SPECIFIC LED PATTERNS
+    // ========================================
+
+    async bikeStartPattern() {
+        console.log('🚴‍♂️ Bike start LED pattern');
+        // Green chase to indicate ready to ride
+        for (let i = 1; i <= 4; i++) {
+            await this.setLED(i, true);
+            await this.delay(150);
+        }
+        await this.delay(500);
+        await this.setAllLEDs(false);
+        await this.delay(200);
+        await this.flashAllLEDs(2, 200);
+    }
+
+    async bikeMilestonePattern(milestone) {
+        console.log(`🚴‍♂️ Bike milestone ${milestone} pattern`);
+        
+        // Different patterns for each milestone
+        switch(milestone) {
+            case 1: // 25%
+                await this.chaseLEDs(3, 100);
+                break;
+            case 2: // 50%
+                await this.flashAllLEDs(4, 150);
+                break;
+            case 3: // 75%
+                // Rapid chase
+                for (let round = 0; round < 2; round++) {
+                    for (let i = 1; i <= 4; i++) {
+                        await this.setLED(i, true);
+                        await this.delay(50);
+                        await this.setLED(i, false);
+                    }
+                }
+                break;
+            case 4: // 100% - Victory!
+                await this.bikeVictoryPattern();
+                break;
+        }
+    }
+
+    async bikeVictoryPattern() {
+        console.log('🚴‍♂️ Bike victory LED pattern - CHAMPION!');
+        
+        // Epic victory sequence
+        for (let i = 0; i < 5; i++) {
+            await this.setAllLEDs(true);
+            await this.delay(100);
+            await this.setAllLEDs(false);
+            await this.delay(100);
+        }
+        
+        // Final cascade
+        await this.chaseLEDs(4, 80);
+        await this.setAllLEDs(true);
+        await this.delay(2000);
+        await this.setAllLEDs(false);
+    }
+
+    async bikeSpeedFeedback(rpm) {
+        // Visual RPM feedback on LEDs
+        const speedLevel = Math.min(4, Math.floor(rpm / 25)); // 25, 50, 75, 100+ RPM levels
+        
+        // Turn on LEDs based on speed
+        for (let i = 1; i <= 4; i++) {
+            await this.setLED(i, i <= speedLevel);
+        }
+    }
+
+    // ========================================
+    // RANDOM LED PATTERNS (Enhanced from original)
+    // ========================================
+
+    async randomLEDSequence(count = 4, onDuration = 500, offDuration = 100, totalSequences = 1) {
+        console.log(`🎲 Random LED sequence: ${totalSequences} sequences of ${count} LEDs`);
+        
+        for (let seq = 0; seq < totalSequences; seq++) {
+            const sequence = [];
+            for (let i = 0; i < count; i++) {
+                sequence.push(Math.floor(Math.random() * 4) + 1);
+            }
+            
+            console.log(`   Sequence ${seq + 1}: ${sequence.join(' → ')}`);
+            
+            for (const led of sequence) {
+                await this.setLED(led, true);
+                await this.delay(onDuration);
+                await this.setLED(led, false);
+                await this.delay(offDuration);
+            }
+            
+            if (seq < totalSequences - 1) {
+                await this.delay(500); // Pause between sequences
+            }
+        }
+    }
+
+    async randomFlashSequence(sequences = 3, flashDuration = 500) {
+        console.log(`⚡ Random flash sequence: ${sequences} sequences`);
+        
+        for (let i = 0; i < sequences; i++) {
+            const randomLED = Math.floor(Math.random() * 4) + 1;
+            const flashCount = Math.floor(Math.random() * 3) + 2; // 2-4 flashes
+            
+            console.log(`   Flash LED ${randomLED} ${flashCount} times`);
+            await this.flashLED(randomLED, flashCount, flashDuration / flashCount);
+            
+            if (i < sequences - 1) {
+                await this.delay(200);
+            }
+        }
+    }
+
+    async randomLEDGame(rounds = 5, speed = 600) {
+        console.log(`🎮 Random LED game: ${rounds} rounds at ${speed}ms speed`);
+        
+        for (let round = 0; round < rounds; round++) {
+            const pattern = [];
+            const patternLength = Math.min(round + 2, 6); // Increasing difficulty
+            
+            // Generate random pattern
+            for (let i = 0; i < patternLength; i++) {
+                pattern.push(Math.floor(Math.random() * 4) + 1);
+            }
+            
+            console.log(`   Round ${round + 1} pattern: ${pattern.join(' → ')}`);
+            
+            // Show pattern
+            for (const led of pattern) {
+                await this.setLED(led, true);
+                await this.delay(speed);
+                await this.setLED(led, false);
+                await this.delay(100);
+            }
+            
+            // Pause before next round
+            if (round < rounds - 1) {
+                await this.delay(800);
+            }
+        }
+    }
+
+    async simonSaysPattern(patternLength = 4, playbackSpeed = 800) {
+        console.log(`🧠 Simon Says pattern: ${patternLength} steps at ${playbackSpeed}ms`);
+        
+        const pattern = [];
+        for (let i = 0; i < patternLength; i++) {
+            pattern.push(Math.floor(Math.random() * 4) + 1);
+        }
+        
+        console.log(`   Pattern: ${pattern.join(' → ')}`);
+        
+        // Play back the pattern
+        for (const led of pattern) {
+            await this.setLED(led, true);
+            await this.delay(playbackSpeed * 0.7);
+            await this.setLED(led, false);
+            await this.delay(playbackSpeed * 0.3);
+        }
+        
+        return pattern;
+    }
+
+    async randomCascade(waves = 3, waveSpeed = 200) {
+        console.log(`🌊 Random cascade: ${waves} waves at ${waveSpeed}ms`);
+        
+        for (let wave = 0; wave < waves; wave++) {
+            const direction = Math.random() > 0.5 ? 1 : -1; // Random direction
+            
+            if (direction === 1) {
+                // Left to right
+                for (let i = 1; i <= 4; i++) {
+                    await this.setLED(i, true);
+                    await this.delay(waveSpeed);
+                    await this.setLED(i, false);
+                }
+            } else {
+                // Right to left
+                for (let i = 4; i >= 1; i--) {
+                    await this.setLED(i, true);
+                    await this.delay(waveSpeed);
+                    await this.setLED(i, false);
+                }
+            }
+        }
+    }
+
+    async rhythmicRandomPattern(beats = 8, tempo = 600) {
+        console.log(`🎵 Rhythmic random pattern: ${beats} beats at ${tempo}ms tempo`);
+        
+        for (let beat = 0; beat < beats; beat++) {
+            const randomLED = Math.floor(Math.random() * 4) + 1;
+            const duration = Math.random() > 0.7 ? tempo * 0.5 : tempo * 0.2; // Some longer beats
+            
+            await this.setLED(randomLED, true);
+            await this.delay(duration);
+            await this.setLED(randomLED, false);
+            await this.delay(tempo - duration);
+        }
+    }
+
+    // ========================================
+    // UTILITY METHODS
+    // ========================================
+
     sendCommand(portPath, command) {
         const connection = this.connections.get(portPath);
         if (!connection || !connection.connected) {
@@ -347,10 +642,15 @@ class FourMicrobitController extends EventEmitter {
     }
 
     getConnectionStatus() {
+        const buttonConnections = Array.from(this.buttonMappings.values()).length;
+        const bikeConnected = this.bikePort !== null;
+        
         const status = {
             connected: this.connections.size,
-            mappings: Object.fromEntries(this.buttonMappings),
-            total: 4
+            buttonConnections: buttonConnections,
+            bikeConnected: bikeConnected,
+            bikeData: this.getBikeData(),
+            total: 4 + (bikeConnected ? 1 : 0)
         };
         
         console.log('📊 Connection Status:', status);
@@ -374,9 +674,13 @@ class FourMicrobitController extends EventEmitter {
         this.connections.clear();
         this.buttonMappings.clear();
         this.portToButton.clear();
+        this.bikePort = null;
     }
 
-    // Game-specific patterns (adapted for 4 separate Microbits)
+    // ========================================
+    // GAME EVENT PATTERNS
+    // ========================================
+
     async gameStartPattern() {
         console.log('🎮 Game start LED pattern');
         await this.chaseLEDs(2, 150);
@@ -398,15 +702,22 @@ class FourMicrobitController extends EventEmitter {
     }
 
     startTestMode() {
-        console.log('\n🧪 4-MICROBIT TEST MODE ACTIVE');
-        console.log('Expected: 4 separate Microbits, each with 1 arcade button');
-        console.log('Button layout: Green(L) → White → Red → Green(R)');
-        console.log('Listening for button events and auto-assigning...\n');
+        console.log('\n🧪 ENHANCED 4-MICROBIT + BIKE SENSOR TEST MODE');
+        console.log('Expected devices:');
+        console.log('• 4 separate Microbits with arcade buttons (Green-White-Red-Green)');
+        console.log('• 1 additional Microbit with HW-484 Hall Sensor for bike');
+        console.log('• Total: Up to 5 Microbits for complete setup');
+        console.log('\nListening for all device events...\n');
 
-        // Test connection status every 5 seconds
+        // Test connection status every 10 seconds
         setInterval(() => {
             this.getConnectionStatus();
-        }, 5000);
+            
+            // Show bike data if available
+            if (this.isBikeSensorConnected()) {
+                console.log('🚴‍♂️ Current bike data:', this.getBikeData());
+            }
+        }, 10000);
     }
 }
 
