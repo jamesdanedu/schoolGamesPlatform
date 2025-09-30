@@ -56,6 +56,28 @@ class GamesPlatform {
             console.log('Microbit status update:', data);
             this.updateMicrobitStatus(data.status === 'connected');
         });
+
+        // ========================================
+        // BIKE SENSOR LISTENERS (NEW)
+        // ========================================
+
+        // Listen for bike sensor status updates
+        ipcRenderer.on('bike-sensor-status', (event, data) => {
+            console.log('🚴‍♂️ Bike sensor status update:', data);
+            this.updateBikeSensorStatus(data.status === 'connected');
+        });
+
+        // Listen for bike sensor data (revolutions, RPM, etc.)
+        ipcRenderer.on('bike-sensor-data', (event, data) => {
+            console.log(`🚴‍♂️ Bike sensor data: Rev ${data.revolutions}, RPM ${data.rpm}`);
+            
+            // Forward to bike game if it's running
+            if (this.currentGame === 'bikerbeat' && this.gameInstance) {
+                if (this.gameInstance.processBikeSensorData) {
+                    this.gameInstance.processBikeSensorData(data);
+                }
+            }
+        });
     }
 
     handleMicrobitButtonPress(data) {
@@ -119,7 +141,7 @@ class GamesPlatform {
         }
     }
 
-        handleMicrobitButtonRelease(data) {
+    handleMicrobitButtonRelease(data) {
         if (!this.gameInstance) return;
 
         // For Pong game - handle button releases
@@ -196,6 +218,95 @@ class GamesPlatform {
             indicator.style.color = '#fff';
             indicator.style.transform = 'scale(1.0)';
             indicator.textContent = `${buttonNumber}`;
+        }
+    }
+
+    // ========================================
+    // BIKE SENSOR METHODS (NEW)
+    // ========================================
+
+    async getBikeSensorStatus() {
+        try {
+            const result = await ipcRenderer.invoke('get-bike-sensor-status');
+            return result;
+        } catch (error) {
+            console.error('Error getting bike sensor status:', error);
+            return { connected: false, data: null };
+        }
+    }
+
+    async resetBikeCounter() {
+        try {
+            const result = await ipcRenderer.invoke('reset-bike-counter');
+            return result.success;
+        } catch (error) {
+            console.error('Error resetting bike counter:', error);
+            return false;
+        }
+    }
+
+    async setBikeGameMode(active) {
+        try {
+            const result = await ipcRenderer.invoke('set-bike-game-mode', active);
+            return result.success;
+        } catch (error) {
+            console.error('Error setting bike game mode:', error);
+            return false;
+        }
+    }
+
+    async onBikeStart() {
+        console.log('🚴‍♂️ Bike starting - LED pattern');
+        try {
+            await ipcRenderer.invoke('bike-start-pattern');
+        } catch (error) {
+            console.error('Error running bike start pattern:', error);
+        }
+    }
+
+    async onBikeMilestone(milestone) {
+        console.log(`🚴‍♂️ Bike milestone ${milestone} - LED pattern`);
+        try {
+            await ipcRenderer.invoke('bike-milestone-pattern', milestone);
+        } catch (error) {
+            console.error('Error running bike milestone pattern:', error);
+        }
+    }
+
+    async onBikeVictory() {
+        console.log('🚴‍♂️ Bike victory - LED pattern');
+        try {
+            await ipcRenderer.invoke('bike-victory-pattern');
+        } catch (error) {
+            console.error('Error running bike victory pattern:', error);
+        }
+    }
+
+    updateBikeSensorStatus(connected) {
+        let bikeStatus = document.getElementById('bikeSensorStatus');
+        
+        if (!bikeStatus) {
+            bikeStatus = document.createElement('div');
+            bikeStatus.id = 'bikeSensorStatus';
+            bikeStatus.style.cssText = `
+                position: fixed;
+                top: 50px;
+                right: 10px;
+                padding: 5px 10px;
+                background: rgba(255, 255, 255, 0.2);
+                border-radius: 15px;
+                font-size: 0.8em;
+                z-index: 1001;
+            `;
+            document.body.appendChild(bikeStatus);
+        }
+        
+        if (connected) {
+            bikeStatus.textContent = '🚴‍♂️ Bike Sensor: Connected';
+            bikeStatus.style.background = 'rgba(0, 255, 0, 0.3)';
+        } else {
+            bikeStatus.textContent = '🚴‍♂️ Bike Sensor: Searching...';
+            bikeStatus.style.background = 'rgba(255, 165, 0, 0.3)';
         }
     }
 
@@ -528,6 +639,20 @@ class GamesPlatform {
                             this.returnToMenu();
                         }
                         break;
+                    case 'bikerbeat':
+                        if (typeof BikerBeatGame !== 'undefined') {
+                            this.gameInstance = new BikerBeatGame(canvas, ctx, this);
+                            // Set bike game mode on Microbit
+                            await this.setBikeGameMode(true);
+                            // Reset bike counter for fresh start
+                            await this.resetBikeCounter();
+                            // Special bike start pattern
+                            await this.onBikeStart();
+                        } else {
+                            console.error('BikerBeatGame class not found');
+                            this.returnToMenu();
+                        }
+                        break;
                     default:
                         console.error(`Unknown game type: ${gameType}`);
                         alert(`Game "${gameType}" is not implemented yet.`);
@@ -540,6 +665,7 @@ class GamesPlatform {
             }
         }, 50);
     }
+
     async returnToMenu() {
         console.log('Returning to menu...');
         
@@ -547,6 +673,12 @@ class GamesPlatform {
         if (this.rhythmLEDInterval) {
             clearInterval(this.rhythmLEDInterval);
             this.rhythmLEDInterval = null;
+        }
+        
+        // Special cleanup for bike game (NEW)
+        if (this.currentGame === 'bikerbeat') {
+            await this.setBikeGameMode(false);
+            console.log('🚴‍♂️ Bike game mode disabled');
         }
         
         // Properly destroy game instance
@@ -704,9 +836,18 @@ class GamesPlatform {
             if (status.connected) {
                 console.log(`✅ Connected to ${status.connectionCount} Microbits`);
             }
+
+            // Also check bike sensor status (NEW)
+            const bikeStatus = await ipcRenderer.invoke('get-bike-sensor-status');
+            this.updateBikeSensorStatus(bikeStatus.connected);
+            
+            if (bikeStatus.connected) {
+                console.log(`✅ HW-484 Bike Sensor connected`);
+            }
         } catch (error) {
             console.log('Microbit not available:', error.message);
             this.updateMicrobitStatus(false);
+            this.updateBikeSensorStatus(false);
         }
     }
 
