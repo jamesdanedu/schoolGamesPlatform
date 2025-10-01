@@ -1,4 +1,4 @@
-// js/games/biker-beat.js - Complete Biker Beat Cycling Game Implementation
+// js/games/biker-beat.js - Complete Biker Beat Cycling Game Implementation with HW-484 Hall Sensor
 
 class BikerBeatGame {
     constructor(canvas, ctx, platform) {
@@ -39,6 +39,7 @@ class BikerBeatGame {
         // HW-484 Hall sensor integration
         this.lastMagnetTime = 0;
         this.magnetDebounceTime = 100; // ms between valid detections
+        this.sensorDebugMode = true; // Set to false for production
         
         // Visual elements
         this.cyclist = {
@@ -109,46 +110,130 @@ class BikerBeatGame {
         this.messageTimer = 0;
         this.messageAlpha = 0;
         
-        // Set up Microbit listener for HW-484 sensor data
+        // Set up HW-484 Hall sensor listener
         this.setupHallSensorListener();
+        
+        // Add to window for debugging (remove in production)
+        if (this.sensorDebugMode) {
+            window.bikerBeatGame = this;
+            console.log('🐛 Debug mode: Use window.bikerBeatGame.testSensorData() to test');
+        }
         
         this.gameLoop = this.gameLoop.bind(this);
         this.gameLoop();
     }
 
     setupHallSensorListener() {
+        console.log('🚴‍♂️ Setting up HW-484 Hall Sensor listener...');
+        
         // Listen for HW-484 hall sensor data from Microbit
         if (window.ipcRenderer) {
             window.ipcRenderer.on('microbit-data', (event, data) => {
+                console.log('📨 Received Microbit data:', data);
+                
                 if (data.includes('BIKE_REV:')) {
                     this.processHallSensorData(data);
+                } else if (data.includes('HW484:')) {
+                    // Alternative format: "HW484:REV_COUNT:RPM:TIMESTAMP"
+                    this.processHallSensorData(data.replace('HW484:', 'BIKE_REV:'));
+                } else if (data.includes('REVOLUTION') || data.includes('PEDAL') || data.includes('WHEEL')) {
+                    // Handle other possible formats
+                    console.log('🔄 Alternative bike data format detected:', data);
+                    this.handleAlternativeBikeData(data);
                 }
             });
+            
+            // Also listen for button presses from Microbit (for game controls)
+            window.ipcRenderer.on('microbit-button-press', (event, data) => {
+                if (this.showDifficultySelect && data.button >= 1 && data.button <= 4) {
+                    const difficulties = ['easy', 'normal', 'hard', 'extreme'];
+                    this.selectDifficulty(difficulties[data.button - 1]);
+                } else if (!this.gameStarted && !this.showDifficultySelect) {
+                    this.startDifficultySelection();
+                }
+            });
+        } else {
+            console.log('⚠️ IPC Renderer not available - sensor won\'t work');
         }
     }
 
     processHallSensorData(data) {
-        // Parse: "BIKE_REV:<count>:<rpm>:<time>"
-        const parts = data.split(':');
-        if (parts.length >= 4) {
-            const revCount = parseInt(parts[1]);
-            const rpm = parseInt(parts[2]);
-            const timestamp = parseInt(parts[3]);
+        console.log('🔄 Processing Hall Sensor data:', data);
+        
+        try {
+            // Parse: "BIKE_REV:<count>:<rpm>:<time>" or similar formats
+            const parts = data.split(':');
             
-            // Only process if we have a new revolution
+            if (parts.length >= 4) {
+                const revCount = parseInt(parts[1]);
+                const rpm = parseInt(parts[2]);
+                const timestamp = parseInt(parts[3]);
+                
+                console.log(`📊 Parsed: Revolutions=${revCount}, RPM=${rpm}, Time=${timestamp}`);
+                
+                // Validate the data
+                if (isNaN(revCount) || isNaN(rpm) || revCount < 0 || rpm < 0) {
+                    console.warn('⚠️ Invalid sensor data received:', { revCount, rpm });
+                    return;
+                }
+                
+                // Only process if we have a new revolution
+                if (revCount > this.currentRevolutions) {
+                    console.log(`🎯 New revolution detected! ${this.currentRevolutions} → ${revCount}`);
+                    this.handleNewRevolution(rpm, timestamp);
+                    this.currentRevolutions = revCount;
+                }
+                
+                // Always update current RPM (even without new revolution)
+                this.updateRPM(rpm);
+                
+            } else {
+                console.warn('⚠️ Unexpected data format:', data);
+            }
+        } catch (error) {
+            console.error('❌ Error processing hall sensor data:', error);
+        }
+    }
+
+    handleAlternativeBikeData(data) {
+        console.log('🔧 Handling alternative bike data:', data);
+        
+        // Look for numbers in the data
+        const numbers = data.match(/\d+/g);
+        
+        if (numbers && numbers.length >= 1) {
+            const revCount = parseInt(numbers[0]);
+            const rpm = numbers.length >= 2 ? parseInt(numbers[1]) : 60; // Default RPM
+            
             if (revCount > this.currentRevolutions) {
-                this.handleNewRevolution(rpm, timestamp);
+                console.log(`🎯 Alternative format - New revolution: ${revCount}`);
+                this.handleNewRevolution(rpm, Date.now());
                 this.currentRevolutions = revCount;
             }
             
-            // Update current RPM
+            this.updateRPM(rpm);
+        }
+    }
+
+    updateRPM(rpm) {
+        if (rpm > 0 && rpm <= 300) { // Reasonable RPM range
             this.currentRPM = rpm;
             this.maxRPM = Math.max(this.maxRPM, rpm);
+            
+            // Update visual feedback based on RPM
+            this.cyclist.animationSpeed = Math.max(0.1, rpm / 60);
+            this.cyclist.sweatLevel = Math.min(1, rpm / 100);
+            this.background.speed = rpm / 20;
+            
+            console.log(`📈 RPM updated: Current=${this.currentRPM}, Max=${this.maxRPM}`);
         }
     }
 
     handleNewRevolution(rpm, timestamp) {
+        console.log(`🚴‍♂️ NEW REVOLUTION! RPM: ${rpm}, Revolution: ${this.currentRevolutions + 1}`);
+        
         if (!this.gameStarted) {
+            console.log('🎮 Starting game due to pedaling...');
             this.startGame();
         }
         
@@ -156,36 +241,53 @@ class BikerBeatGame {
         const currentTime = Date.now();
         this.lastRevolutionTime = currentTime;
         
-        // Update RPM tracking
-        this.rpmHistory.push(rpm);
-        if (this.rpmHistory.length > 10) {
-            this.rpmHistory.shift();
+        // Update RPM tracking with validation
+        if (rpm > 0 && rpm <= 300) {
+            this.rpmHistory.push(rpm);
+            if (this.rpmHistory.length > 10) {
+                this.rpmHistory.shift();
+            }
+            
+            this.averageRPM = this.rpmHistory.reduce((a, b) => a + b, 0) / this.rpmHistory.length;
+            console.log(`📊 RPM Stats - Current: ${rpm}, Average: ${this.averageRPM.toFixed(1)}, Max: ${this.maxRPM}`);
         }
         
-        this.averageRPM = this.rpmHistory.reduce((a, b) => a + b, 0) / this.rpmHistory.length;
-        
-        // Update cyclist animation based on RPM
-        this.cyclist.animationSpeed = Math.max(0.1, rpm / 60); // Convert RPM to animation speed
-        this.cyclist.sweatLevel = Math.min(1, rpm / 100); // More sweat at higher RPM
-        
-        // Update background scroll speed
-        this.background.speed = rpm / 20;
-        
         // Check for milestones (every 25%)
-        const progress = this.currentRevolutions / this.targetRevolutions;
+        const progress = (this.currentRevolutions + 1) / this.targetRevolutions;
         const milestone = Math.floor(progress * 4); // 0, 1, 2, 3 for 25%, 50%, 75%, 100%
         
         if (milestone > this.lastMilestone && milestone < 4) {
+            console.log(`🎉 Milestone reached: ${(milestone + 1) * 25}%`);
             this.reachMilestone(milestone);
         }
         
         // Update platform score
-        this.platform.updateScore(this.currentRevolutions);
+        this.platform.updateScore(this.currentRevolutions + 1);
         
         // Check for completion
-        if (this.currentRevolutions >= this.targetRevolutions) {
+        if ((this.currentRevolutions + 1) >= this.targetRevolutions) {
+            console.log('🏁 GAME COMPLETED!');
             this.completeGame();
         }
+    }
+
+    testSensorData() {
+        console.log('🧪 Testing sensor data simulation...');
+        
+        // Simulate receiving sensor data
+        const testData = [
+            'BIKE_REV:1:45:1234567890',
+            'BIKE_REV:2:52:1234567920',
+            'BIKE_REV:3:48:1234567950',
+            'HW484:4:55:1234567980'
+        ];
+        
+        testData.forEach((data, index) => {
+            setTimeout(() => {
+                console.log(`📝 Simulating: ${data}`);
+                this.processHallSensorData(data);
+            }, index * 1000);
+        });
     }
 
     handleKeyDown(e) {
@@ -961,6 +1063,16 @@ class BikerBeatGame {
 
     destroy() {
         this.running = false;
-        // Clean up any event listeners if needed
+        
+        // Clean up event listeners
+        if (window.ipcRenderer) {
+            window.ipcRenderer.removeAllListeners('microbit-data');
+            window.ipcRenderer.removeAllListeners('microbit-button-press');
+        }
+        
+        // Remove from window
+        if (window.bikerBeatGame === this) {
+            delete window.bikerBeatGame;
+        }
     }
 }
