@@ -18,7 +18,10 @@
     "games",
     "education",
     "microbit",
-    "school"
+    "school",
+    "arcade",
+    "hardware",
+    "sensors"
   ],
   "author": "School Games Platform",
   "license": "MIT",
@@ -88,7 +91,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
+      "createDesktopShortbox": true,
       "createStartMenuShortcut": true
     }
   }
