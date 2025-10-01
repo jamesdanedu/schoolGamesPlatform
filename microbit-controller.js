@@ -1,4 +1,4 @@
-// microbit-controller.js - Enhanced for HW-484 Hall Sensor Support
+// microbit-controller.js - Complete Enhanced Version for HW-484 Hall Sensor Support
 
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
@@ -25,6 +25,9 @@ class FourMicrobitController extends EventEmitter {
             lastUpdateTime: 0,
             isActive: false
         };
+        
+        // Test mode tracking
+        this.statusInterval = null;
         
         console.log('🎮 Initializing 4-Microbit Arcade Controller with Bike Sensor...');
         this.findAllMicrobits();
@@ -133,12 +136,18 @@ class FourMicrobitController extends EventEmitter {
 
         console.log(`📨 [${portPath}] ${message}`);
 
-        // HW-484 Bike Sensor Messages
+        // Auto-register bike sensor on first BIKE_REV message
         if (message.startsWith('BIKE_REV:')) {
+            // Auto-register as bike sensor if not already registered
+            if (!this.bikePort) {
+                console.log('🔄 Auto-registering bike sensor from data message');
+                this.registerBikeSensor(portPath);
+            }
             this.processBikeSensorData(portPath, message);
             return;
         }
 
+        // Explicit bike sensor registration messages
         if (message.includes('BIKE SENSOR READY') || message.includes('HW-484')) {
             this.registerBikeSensor(portPath);
             return;
@@ -206,6 +215,12 @@ class FourMicrobitController extends EventEmitter {
             const rpm = parseInt(parts[2]);
             const timestamp = parseInt(parts[3]);
             
+            // Validation - reject invalid data
+            if (isNaN(revolutions) || isNaN(rpm) || revolutions < 0 || rpm < 0) {
+                console.warn('⚠️ Invalid bike sensor data:', { revolutions, rpm });
+                return;
+            }
+            
             // Update bike data
             this.bikeData = {
                 revolutions: revolutions,
@@ -223,6 +238,9 @@ class FourMicrobitController extends EventEmitter {
                 timestamp: timestamp,
                 port: portPath
             });
+            
+            // Emit generic microbit-data for compatibility with biker-beat.js
+            this.emit('microbit-data', message);
         }
     }
 
@@ -322,10 +340,33 @@ class FourMicrobitController extends EventEmitter {
         return this.bikePort !== null;
     }
 
+    sendBikeCommand(command) {
+        if (!this.bikePort) {
+            console.error('❌ No bike sensor connected');
+            return false;
+        }
+        
+        return this.sendCommand(this.bikePort, command);
+    }
+
     async resetBikeCounter() {
         if (this.bikePort) {
+            // Reset local data immediately
+            this.bikeData = {
+                revolutions: 0,
+                rpm: 0,
+                lastUpdateTime: Date.now(),
+                isActive: false
+            };
+            
             // Send reset command to bike sensor Microbit
-            return this.sendCommand(this.bikePort, 'RESET_COUNTER');
+            const result = this.sendCommand(this.bikePort, 'RESET_COUNTER');
+            
+            if (result) {
+                console.log('🔄 Bike counter reset successfully');
+            }
+            
+            return result;
         }
         return false;
     }
@@ -335,6 +376,42 @@ class FourMicrobitController extends EventEmitter {
             const command = active ? 'GAME_MODE_ON' : 'GAME_MODE_OFF';
             return this.sendCommand(this.bikePort, command);
         }
+        return false;
+    }
+
+    // Simulation and testing methods
+    simulateBikeData(revolutions = 1, rpm = 60) {
+        const testMessage = `BIKE_REV:${revolutions}:${rpm}:${Date.now()}`;
+        console.log('🧪 Simulating bike data:', testMessage);
+        
+        // Process as if received from Microbit
+        this.processBikeSensorData('simulated', testMessage);
+        
+        return testMessage;
+    }
+
+    async testBikeSensor() {
+        console.log('🧪 Testing bike sensor functionality...');
+        
+        if (!this.isBikeSensorConnected()) {
+            console.log('⚠️ No bike sensor connected - using simulation');
+            
+            // Simulate a series of bike data
+            for (let i = 1; i <= 5; i++) {
+                const rpm = 40 + (i * 10); // Increasing RPM
+                this.simulateBikeData(i, rpm);
+                await this.delay(1000);
+            }
+            
+            return true;
+        }
+        
+        // Test real bike sensor
+        if (this.sendBikeCommand('TEST')) {
+            console.log('✅ Test command sent to bike sensor');
+            return true;
+        }
+        
         return false;
     }
 
@@ -657,8 +734,56 @@ class FourMicrobitController extends EventEmitter {
         return status;
     }
 
+    // Get detailed status for debugging
+    getDetailedStatus() {
+        const connections = Array.from(this.connections.entries()).map(([port, conn]) => ({
+            port,
+            type: conn.deviceType,
+            buttonNumber: conn.buttonNumber || null,
+            connected: conn.connected,
+            lastActivity: new Date(conn.lastActivity).toLocaleTimeString()
+        }));
+
+        return {
+            totalConnections: this.connections.size,
+            buttonMappings: Object.fromEntries(this.buttonMappings),
+            bikePort: this.bikePort,
+            bikeData: this.getBikeData(),
+            connections: connections
+        };
+    }
+
+    // Log current system state
+    logSystemState() {
+        console.log('\n📊 MICROBIT SYSTEM STATE:');
+        console.log('================================');
+        
+        const status = this.getDetailedStatus();
+        
+        console.log(`Total Connections: ${status.totalConnections}`);
+        console.log(`Button Mappings:`, status.buttonMappings);
+        console.log(`Bike Connected: ${status.bikePort ? 'YES' : 'NO'}`);
+        
+        if (status.bikePort) {
+            console.log(`Bike Data:`, status.bikeData);
+        }
+        
+        console.log('\nConnection Details:');
+        status.connections.forEach(conn => {
+            console.log(`  ${conn.port}: ${conn.type} (Button ${conn.buttonNumber || 'N/A'}) - Last: ${conn.lastActivity}`);
+        });
+        
+        console.log('================================\n');
+    }
+
     disconnect() {
         console.log('🔌 Disconnecting all Microbits...');
+        
+        // Clear status interval
+        if (this.statusInterval) {
+            clearInterval(this.statusInterval);
+            this.statusInterval = null;
+        }
         
         for (const [portPath, connection] of this.connections) {
             try {
@@ -675,6 +800,14 @@ class FourMicrobitController extends EventEmitter {
         this.buttonMappings.clear();
         this.portToButton.clear();
         this.bikePort = null;
+        
+        // Reset bike data
+        this.bikeData = {
+            revolutions: 0,
+            rpm: 0,
+            lastUpdateTime: 0,
+            isActive: false
+        };
     }
 
     // ========================================
@@ -707,10 +840,12 @@ class FourMicrobitController extends EventEmitter {
         console.log('• 4 separate Microbits with arcade buttons (Green-White-Red-Green)');
         console.log('• 1 additional Microbit with HW-484 Hall Sensor for bike');
         console.log('• Total: Up to 5 Microbits for complete setup');
+        console.log('\n💡 Bike sensor will auto-register on first BIKE_REV message');
+        console.log('💡 Use simulateBikeData() method to test without hardware');
         console.log('\nListening for all device events...\n');
 
         // Test connection status every 10 seconds
-        setInterval(() => {
+        this.statusInterval = setInterval(() => {
             this.getConnectionStatus();
             
             // Show bike data if available
@@ -718,6 +853,13 @@ class FourMicrobitController extends EventEmitter {
                 console.log('🚴‍♂️ Current bike data:', this.getBikeData());
             }
         }, 10000);
+
+        // Add to window for debugging (if in renderer process)
+        if (typeof window !== 'undefined') {
+            window.microbitController = this;
+            console.log('🐛 Debug: Controller available as window.microbitController');
+            console.log('🐛 Try: window.microbitController.simulateBikeData(5, 80)');
+        }
     }
 }
 
