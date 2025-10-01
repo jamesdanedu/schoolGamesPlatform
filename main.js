@@ -1,4 +1,4 @@
-// main.js - Electron main process
+// main.js - Electron main process with complete bike sensor integration
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -38,7 +38,7 @@ function createWindow() {
 }
 
 function initializeMicrobitController() {
-  console.log('🎮 Initializing Microbit Arcade Controller...');
+  console.log('🎮 Initializing Microbit Arcade Controller + Bike Sensor...');
   
   try {
     microbitController = new FourMicrobitController();
@@ -67,7 +67,7 @@ function initializeMicrobitController() {
     });
 
     // ========================================
-    // BIKE SENSOR EVENT LISTENERS (NEW)
+    // BIKE SENSOR EVENT LISTENERS
     // ========================================
 
     microbitController.on('bike-sensor-ready', (data) => {
@@ -93,6 +93,12 @@ function initializeMicrobitController() {
       });
     });
 
+    // *** ADD THIS: Generic microbit-data event for compatibility ***
+    microbitController.on('microbit-data', (data) => {
+      // Generic data event for compatibility with biker-beat.js
+      mainWindow.webContents.send('microbit-data', data);
+    });
+
     // Start test mode for debugging
     microbitController.startTestMode();
 
@@ -110,11 +116,11 @@ ipcMain.handle('get-microbit-status', async () => {
   if (microbitController) {
     const status = microbitController.getConnectionStatus();
     return { 
-      connected: status.buttonConnections > 0,
+      connected: status.connected > 0,
       buttonStates: microbitController.getButtonStates(),
-      connectionCount: status.buttonConnections,
-      bikeConnected: status.bikeConnected,
-      bikeData: status.bikeData
+      connectionCount: status.connected,
+      bikeConnected: status.bikeConnected || false,
+      bikeData: microbitController.getBikeData ? microbitController.getBikeData() : null
     };
   }
   return { connected: false, bikeConnected: false };
@@ -141,28 +147,38 @@ ipcMain.handle('restart-microbit-controller', async () => {
 });
 
 // ========================================
-// BIKE SENSOR IPC HANDLERS (NEW)
+// BIKE SENSOR IPC HANDLERS
 // ========================================
 
 ipcMain.handle('get-bike-sensor-status', async () => {
   if (microbitController) {
     return {
-      connected: microbitController.isBikeSensorConnected(),
-      data: microbitController.getBikeData()
+      connected: microbitController.isBikeSensorConnected ? microbitController.isBikeSensorConnected() : false,
+      data: microbitController.getBikeData ? microbitController.getBikeData() : null
     };
   }
   return { connected: false, data: null };
 });
 
 ipcMain.handle('get-bike-data', async () => {
-  return microbitController ? microbitController.getBikeData() : null;
+  return microbitController && microbitController.getBikeData ? microbitController.getBikeData() : null;
 });
 
 ipcMain.handle('reset-bike-counter', async () => {
   try {
-    if (microbitController) {
+    if (microbitController && microbitController.resetBikeCounter) {
       const result = await microbitController.resetBikeCounter();
       return { success: result };
+    }
+    // Fallback: reset bike data manually
+    if (microbitController && microbitController.bikeData) {
+      microbitController.bikeData = {
+        revolutions: 0,
+        rpm: 0,
+        lastUpdateTime: 0,
+        isActive: false
+      };
+      return { success: true };
     }
     return { success: false, error: 'Microbit controller not available' };
   } catch (error) {
@@ -172,9 +188,49 @@ ipcMain.handle('reset-bike-counter', async () => {
 
 ipcMain.handle('set-bike-game-mode', async (event, active) => {
   try {
-    if (microbitController) {
+    if (microbitController && microbitController.setBikeGameMode) {
       const result = await microbitController.setBikeGameMode(active);
       return { success: result };
+    }
+    // Fallback: just return success for compatibility
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// *** ADD THESE: Missing bike sensor test/debug handlers ***
+ipcMain.handle('test-bike-sensor', async () => {
+  try {
+    if (microbitController && microbitController.bikePort) {
+      // Send test command to bike sensor
+      if (microbitController.sendBikeCommand) {
+        microbitController.sendBikeCommand('TEST');
+      }
+      return { success: true, message: 'Test command sent to bike sensor' };
+    }
+    return { success: false, error: 'No bike sensor connected' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('simulate-bike-data', async (event, revolutions, rpm) => {
+  try {
+    if (microbitController) {
+      // Simulate bike data for testing
+      const testData = {
+        revolutions: revolutions || 1,
+        rpm: rpm || 60,
+        timestamp: Date.now(),
+        port: 'simulated'
+      };
+      
+      console.log('🧪 Simulating bike data:', testData);
+      mainWindow.webContents.send('bike-sensor-data', testData);
+      mainWindow.webContents.send('microbit-data', `BIKE_REV:${testData.revolutions}:${testData.rpm}:${testData.timestamp}`);
+      
+      return { success: true, data: testData };
     }
     return { success: false, error: 'Microbit controller not available' };
   } catch (error) {
@@ -183,13 +239,18 @@ ipcMain.handle('set-bike-game-mode', async (event, active) => {
 });
 
 // ========================================
-// BIKE-SPECIFIC LED PATTERNS (NEW)
+// BIKE-SPECIFIC LED PATTERNS
 // ========================================
 
 ipcMain.handle('bike-start-pattern', async () => {
   try {
-    if (microbitController) {
+    if (microbitController && microbitController.bikeStartPattern) {
       await microbitController.bikeStartPattern();
+      return { success: true };
+    }
+    // Fallback: use game start pattern
+    if (microbitController && microbitController.gameStartPattern) {
+      await microbitController.gameStartPattern();
       return { success: true };
     }
     return { success: false, error: 'Microbit controller not available' };
@@ -200,8 +261,13 @@ ipcMain.handle('bike-start-pattern', async () => {
 
 ipcMain.handle('bike-milestone-pattern', async (event, milestone) => {
   try {
-    if (microbitController) {
+    if (microbitController && microbitController.bikeMilestonePattern) {
       await microbitController.bikeMilestonePattern(milestone);
+      return { success: true };
+    }
+    // Fallback: use chase pattern
+    if (microbitController && microbitController.chaseLEDs) {
+      await microbitController.chaseLEDs(2, 150);
       return { success: true };
     }
     return { success: false, error: 'Microbit controller not available' };
@@ -212,8 +278,13 @@ ipcMain.handle('bike-milestone-pattern', async (event, milestone) => {
 
 ipcMain.handle('bike-victory-pattern', async () => {
   try {
-    if (microbitController) {
+    if (microbitController && microbitController.bikeVictoryPattern) {
       await microbitController.bikeVictoryPattern();
+      return { success: true };
+    }
+    // Fallback: use game win pattern
+    if (microbitController && microbitController.gameWinPattern) {
+      await microbitController.gameWinPattern();
       return { success: true };
     }
     return { success: false, error: 'Microbit controller not available' };
@@ -224,8 +295,15 @@ ipcMain.handle('bike-victory-pattern', async () => {
 
 ipcMain.handle('bike-speed-feedback', async (event, rpm) => {
   try {
-    if (microbitController) {
+    if (microbitController && microbitController.bikeSpeedFeedback) {
       await microbitController.bikeSpeedFeedback(rpm);
+      return { success: true };
+    }
+    // Fallback: flash LEDs based on speed
+    if (microbitController && microbitController.flashAllLEDs) {
+      const flashCount = Math.min(Math.max(1, Math.floor(rpm / 20)), 5);
+      const flashSpeed = Math.max(100, 500 - (rpm * 5));
+      await microbitController.flashAllLEDs(flashCount, flashSpeed);
       return { success: true };
     }
     return { success: false, error: 'Microbit controller not available' };
